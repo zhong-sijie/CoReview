@@ -1,0 +1,5 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 继承 VSCode 主题变量和基础排版（保留现有 App.css 管理变量） */
