@@ -173,7 +173,7 @@ export class TableService {
     // 使用最终的查询上下文获取评论数据
     const commentsResp = await this.loadQueryComments({
       projectId: finalQueryContext?.projectId,
-      type: finalQueryContext?.filterType || EnumReviewListFilter.All,
+      type: finalQueryContext?.filterType,
     });
 
     return {
@@ -264,7 +264,6 @@ export class TableService {
       // 保存新增数据
       const addDataObject =
         addData.length > 0 ? Object.fromEntries(addData) : null;
-      console.log(addDataObject, '=== addDataObject ===');
       if (addDataObject) {
         stateService.saveAddData(addDataObject);
       } else {

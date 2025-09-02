@@ -1,4 +1,6 @@
 import { Column, useRowSelect, useSortBy, useTable } from 'react-table';
+import { postMessage } from '@common/services/vscodeService';
+import { EnumMessageType } from '@shared/enums';
 import type { ReviewCommentItem } from '@shared/types';
 
 /**
@@ -26,6 +28,7 @@ interface Props {
  * - 数据表格渲染：使用react-table实现高性能表格
  * - 排序功能：支持点击表头进行排序
  * - 行选择：支持行选择功能（通过useRowSelect）
+ * - 双击跳转：支持双击行跳转到对应文件和行号
  * - 响应式设计：支持水平滚动
  * - 主题适配：使用VS Code主题变量
  */
@@ -41,6 +44,28 @@ const HomeMain = (props: Props) => {
    */
   const { getTableProps, getTableBodyProps, headerGroups, rows, prepareRow } =
     useTable({ columns, data: dataSource }, useSortBy, useRowSelect);
+
+  /**
+   * 处理双击行事件
+   *
+   * 当用户双击表格行时，提取文件路径和行号信息，并发送到扩展端进行文件跳转。
+   * 支持多段行号范围，如 "4 ~ 8; 10 ~ 20; 30 ~ 50"。
+   *
+   * @param row 被双击的行数据
+   */
+  const handleRowDoubleClick = (row: ReviewCommentItem) => {
+    const { values } = row;
+    const filePath = values.filePath?.value;
+    const lineRange = values.lineRange?.value;
+
+    // 检查是否有文件路径和行号信息
+    if (!filePath || !lineRange) {
+      return;
+    }
+
+    // 发送文件跳转消息到扩展端
+    postMessage(EnumMessageType.OpenFile, { filePath, lineRange });
+  };
 
   /**
    * 渲染加载状态
@@ -108,7 +133,9 @@ const HomeMain = (props: Props) => {
               return (
                 <tr
                   {...row.getRowProps()}
-                  className="border-b border-[var(--vscode-panel-border)] transition-colors hover:bg-[var(--vscode-list-hoverBackground)]">
+                  className="cursor-pointer border-b border-[var(--vscode-panel-border)] transition-colors hover:bg-[var(--vscode-list-hoverBackground)]"
+                  onDoubleClick={() => handleRowDoubleClick(row.original)}
+                  title="双击跳转到对应文件和行号">
                   {row.cells.map(cell => (
                     <td
                       {...cell.getCellProps()}

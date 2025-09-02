@@ -222,8 +222,6 @@ export async function requestApi<T = unknown, D = unknown>(
   config: RequestConfig<D>,
 ): Promise<T> {
   const resp = await request<ApiEnvelope<T>, D>(config);
-  console.log(resp.request.path, '=== path ===');
-  console.log(resp, '=== resp ===');
   const body = resp.data;
 
   // 检查响应状态码，非 0 表示失败

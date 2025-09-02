@@ -205,7 +205,6 @@ const HomePage = () => {
       // 更新新增的评审意见，将 Record 格式转换为 Map 格式
       if (initialAddData) {
         const addDataMap = new Map(Object.entries(initialAddData));
-        console.log(addDataMap, '=== addDataMap ===');
         setAddData(addDataMap);
       }
 
@@ -213,7 +212,6 @@ const HomePage = () => {
       // 这确保了页面刷新后用户的编辑内容不会丢失
       if (persistedEditData) {
         const editDataMap = new Map(Object.entries(persistedEditData));
-        console.log(editDataMap, '=== editDataMap ===');
         setEditData(editDataMap);
       }
 

@@ -467,6 +467,18 @@ export interface NewReviewCommentAddedPayload {
 }
 
 /**
+ * 打开文件消息负载接口
+ *
+ * 定义打开文件时发送的消息负载。
+ */
+export interface OpenFilePayload extends BaseMessagePayload {
+  /** 要打开的文件的绝对路径 */
+  filePath: string;
+  /** 行号范围，如 "4 ~ 8" 或 "10 ～ 20; 30 ~ 50; 80 ~ 100" */
+  lineRange: string;
+}
+
+/**
  * 所有消息负载的联合类型
  *
  * 包含所有可能的消息负载类型，用于严格的类型检查。
@@ -478,6 +490,7 @@ export type AllMessagePayloads =
   | SubmitDataPayload
   | UpdateQueryContextPayload
   | SaveReviewCommentPayload
+  | OpenFilePayload
   | NewReviewCommentAddedPayload
   | AuthStatePayload
   | TableDataLoadedPayload

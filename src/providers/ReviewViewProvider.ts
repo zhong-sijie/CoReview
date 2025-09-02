@@ -1,8 +1,10 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { EnumMessageType, EnumViews } from '../../shared/enums';
 import {
   ColumnConfig,
   LoginPayload,
+  OpenFilePayload,
   ProjectOptionResponse,
   QueryContext,
   ReviewCommentItem,
@@ -338,6 +340,32 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         });
       },
     );
+
+    // 打开文件并跳转到指定行号
+    this.webViewService.registerMessageHandler(
+      EnumMessageType.OpenFile,
+      async (message: WebViewMessage<OpenFilePayload>) => {
+        const { filePath, lineRange } = message.payload ?? {};
+
+        try {
+          // 打开文件
+          const document = await this.openFileWithFallback(filePath);
+
+          // 显示文件
+          const editor = await vscode.window.showTextDocument(document, {
+            preview: false,
+            viewColumn: vscode.ViewColumn.Active,
+          });
+
+          // 跳转到指定行号
+          await this.jumpToLineRange(editor, lineRange);
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          showError(`打开文件失败: ${errorMessage}`);
+        }
+      },
+    );
   }
 
   /**
@@ -488,5 +516,126 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
           this.sendColumnConfig(columns, projects, comments, queryContext);
         });
     }
+  }
+
+  /**
+   * 打开文件，支持多种路径格式的智能回退
+   *
+   * 自动处理相对路径和绝对路径，尝试多种可能的路径组合来找到文件。
+   * 支持工作区相对路径、绝对路径等多种格式。
+   *
+   * @param filePath 文件路径，可以是相对路径或绝对路径
+   * @returns 成功打开的文件文档对象
+   * @throws 当所有路径尝试都失败时抛出错误
+   */
+  private async openFileWithFallback(
+    filePath: string,
+  ): Promise<vscode.TextDocument> {
+    if (
+      vscode.workspace.workspaceFolders &&
+      vscode.workspace.workspaceFolders.length > 0
+    ) {
+      // 有工作区文件夹，尝试解析相对路径
+      const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
+
+      // 尝试多种可能的路径组合
+      const possiblePaths = [
+        filePath, // 原始路径
+        path.join(workspaceRoot, filePath), // 工作区根目录 + 相对路径
+        path.resolve(workspaceRoot, filePath), // 解析后的绝对路径
+      ];
+
+      // 尝试打开文件，直到成功
+      for (const testPath of possiblePaths) {
+        try {
+          const uri = vscode.Uri.file(testPath);
+          return await vscode.workspace.openTextDocument(uri);
+        } catch {
+          // 继续尝试下一个路径
+          continue;
+        }
+      }
+
+      // 所有路径都失败
+      throw new Error(`无法找到文件，尝试的路径: ${possiblePaths.join(', ')}`);
+    } else {
+      // 没有工作区，直接尝试原始路径
+      const uri = vscode.Uri.file(filePath);
+      return await vscode.workspace.openTextDocument(uri);
+    }
+  }
+
+  /**
+   * 跳转到指定的行号范围
+   *
+   * 解析行号范围字符串，支持多段范围格式，并自动设置选择范围和滚动位置。
+   * 支持的行号格式：单行 "10"、范围 "4 ~ 8"、多段 "4 ~ 8; 10 ~ 20; 30 ~ 50"
+   *
+   * @param editor 要操作的文本编辑器
+   * @param lineRange 行号范围字符串
+   */
+  private async jumpToLineRange(
+    editor: vscode.TextEditor,
+    lineRange: string,
+  ): Promise<void> {
+    const doc = editor.document;
+
+    // 解析行号范围，支持多段范围如 "4 ~ 8; 10 ~ 20; 30 ~ 50"
+    const segments = lineRange
+      .split(';')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (segments.length === 0) {
+      return;
+    }
+
+    const selections: vscode.Selection[] = [];
+
+    for (const seg of segments) {
+      // 1) 区间匹配：a ~ b 或 a ～ b
+      let m = seg.match(/^(\d+)\s*[~～]\s*(\d+)$/);
+      if (m) {
+        let start = parseInt(m[1], 10);
+        let end = parseInt(m[2], 10);
+        if (Number.isNaN(start) || Number.isNaN(end)) {
+          continue;
+        }
+        if (end < start) {
+          [start, end] = [end, start];
+        }
+
+        // 转为 0-based 索引并做边界修正
+        const startLine = Math.max(0, Math.min(doc.lineCount - 1, start - 1));
+        const endLine = Math.max(0, Math.min(doc.lineCount - 1, end - 1));
+
+        const startPos = new vscode.Position(startLine, 0);
+        const endPos = doc.lineAt(endLine).range.end; // 覆盖到结束行末尾，确保包含该行
+        selections.push(new vscode.Selection(startPos, endPos));
+        continue;
+      }
+
+      // 2) 单行匹配：a
+      m = seg.match(/^(\d+)$/);
+      if (m) {
+        const ln = parseInt(m[1], 10);
+        if (Number.isNaN(ln)) {
+          continue;
+        }
+        const line = Math.max(0, Math.min(doc.lineCount - 1, ln - 1));
+        const startPos = new vscode.Position(line, 0);
+        const endPos = doc.lineAt(line).range.end;
+        selections.push(new vscode.Selection(startPos, endPos));
+      }
+    }
+
+    if (selections.length === 0) {
+      return;
+    }
+
+    // 设置多段选择
+    editor.selections = selections;
+    // 将视图滚动到第一段
+    editor.revealRange(selections[0], vscode.TextEditorRevealType.InCenter);
   }
 }

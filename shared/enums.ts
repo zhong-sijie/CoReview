@@ -33,6 +33,8 @@ export enum EnumMessageType {
   QueryComments = 'query-comments',
   /** 保存评审意见，包含选中的文本和行号信息 */
   SaveReviewComment = 'save-review-comment',
+  /** 打开文件并跳转到指定行号 */
+  OpenFile = 'open-file',
 
   // Extension → Webview 事件消息
   /** 鉴权状态发生变化时通知 Webview，包括登录、登出、连接状态变更 */
