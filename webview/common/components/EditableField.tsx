@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { EnumInputType } from "@shared/enums";
-import { ColumnConfig, ReviewCommentItem } from "@shared/types";
+import React, { useEffect, useState } from 'react';
+import { EnumInputType } from '@shared/enums';
+import type { ColumnConfig, ReviewCommentItem } from '@shared/types';
 
 /**
  * 可编辑单元格组件的入参类型
@@ -53,7 +53,7 @@ const EditableField = (props: Props) => {
    * 初始化为title值，避免受控/非受控组件切换问题。
    * 在title变化时同步更新，例如外部数据回填时。
    */
-  const [value, setValue] = useState(title || "");
+  const [value, setValue] = useState(title || '');
 
   /**
    * 同步外部传入的 title 到本地 value
@@ -62,7 +62,7 @@ const EditableField = (props: Props) => {
    * 依赖：title
    */
   useEffect(() => {
-    setValue(title || "");
+    setValue(title || '');
   }, [title]);
 
   /**
@@ -74,7 +74,7 @@ const EditableField = (props: Props) => {
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    >,
   ) => {
     setValue(e.target.value);
   };
@@ -101,12 +101,12 @@ const EditableField = (props: Props) => {
    */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     switch (e.key) {
-      case "Enter":
+      case 'Enter':
         handleCommit();
         break;
 
-      case "Escape":
-        setValue(title || "");
+      case 'Escape':
+        setValue(title || '');
         onStopEdit();
         break;
 
@@ -136,7 +136,7 @@ const EditableField = (props: Props) => {
   const renderEditComponent = () => {
     // 统一的样式类名，保证与 VS Code Webview 主题一致
     const commonClassName =
-      "w-full px-2 py-1 text-sm border border-[var(--vscode-focus-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] rounded focus:outline-none";
+      'w-full px-2 py-1 text-sm border border-[var(--vscode-focusBorder)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] rounded focus:outline-none';
 
     switch (col.inputType) {
       case EnumInputType.TEXT:
@@ -178,9 +178,8 @@ const EditableField = (props: Props) => {
             onBlur={handleCommit}
             onKeyDown={handleKeyDown}
             autoFocus
-            className={commonClassName}
-          >
-            {currentOptions.map((option) => (
+            className={commonClassName}>
+            {currentOptions.map(option => (
               <option key={option.showName} value={option.showName}>
                 {option.showName}
               </option>
@@ -210,7 +209,7 @@ const EditableField = (props: Props) => {
     if (isEditable) {
       // 可编辑显示：hover 高亮，点击进入编辑
       const displayClassName =
-        "w-full px-2 py-1 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] rounded";
+        'w-full px-2 py-1 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] rounded';
 
       return (
         <div className={displayClassName} onClick={onStartEdit}>
@@ -220,7 +219,7 @@ const EditableField = (props: Props) => {
     }
 
     // 非可编辑：只读显示
-    return <span className="px-2 py-1 text-sm">{value || ""}</span>;
+    return <span className="px-2 py-1 text-sm">{value || ''}</span>;
   };
 
   // 根据 isEditing 切换编辑态/显示态渲染

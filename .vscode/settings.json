@@ -1,20 +1,30 @@
 // Place your settings in this file to overwrite default and user settings.
 {
-  "files.exclude": {
-    "out": false, // set this to true to hide the "out" folder with the compiled JS files
-    "dist": false // set this to true to hide the "dist" folder with the compiled JS files
-  },
-  "search.exclude": {
-    "out": true, // set this to false to include "out" folder in search results
-    "dist": true // set this to false to include "dist" folder in search results
-  },
-  // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
-  "typescript.tsc.autoDetect": "off",
-  // 保存时自动应用 ESLint 修复
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
-    "source.fixAll": "always",
-    "source.fixAll.eslint": "always"
+    "source.fixAll.eslint": "explicit"
   },
-  "eslint.codeActionsOnSave.mode": "all",
-  "eslint.format.enable": true
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "prettier.requireConfig": true,
+  "eslint.validate": [
+    "typescript",
+    "typescriptreact",
+    "javascript",
+    "javascriptreact"
+  ]
 }

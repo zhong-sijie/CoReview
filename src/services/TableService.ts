@@ -1,70 +1,33 @@
-import { EnumHttpMethod, EnumReviewListFilter } from "../../shared/enums";
+import { EnumHttpMethod, EnumReviewListFilter } from '../../shared/enums';
 import {
   type ColumnConfig,
+  type ColumnConfigResponse,
+  CommitCommentsResponse,
+  type InitialTableData,
   type ProjectOptionResponse,
   type QueryCommentsResponse,
-  type ColumnConfigResponse,
-  type InitialTableData,
   type ReviewCommentItem,
-  CommitCommentsResponse,
-} from "../../shared/types";
-import { requestApi } from "../utils/request";
-import { StateService } from "./StateService";
-
-/**
- * 表格查询参数接口
- *
- * 定义表格数据查询时的通用参数结构
- */
-export interface TableQueryParams {
-  /** 页码，从1开始 */
-  page?: number;
-  /** 每页数据条数 */
-  pageSize?: number;
-  /** 筛选条件对象 */
-  filters?: Record<string, unknown>;
-  /** 排序条件 */
-  sorter?: { field: string; order: "ascend" | "descend" } | null;
-}
-
-/**
- * 表格数据项接口
- *
- * 定义表格中单行数据的通用结构
- */
-export interface TableItem {
-  /** 动态属性，支持任意字段 */
-  [key: string]: unknown;
-}
-
-/**
- * 表格数据响应接口
- *
- * 定义表格数据查询的响应结构
- */
-export interface TableDataResponse<T extends TableItem = TableItem> {
-  /** 数据列表 */
-  list: T[];
-  /** 总数据条数 */
-  total: number;
-}
+} from '../../shared/types';
+import { requestApi } from '../utils/request';
+import { StateService } from './StateService';
 
 /**
  * 查询评审意见列表请求参数接口
  *
- * 定义评审评论查询的参数结构
+ * 定义评审评论查询的参数结构，支持按项目和筛选类型查询。
  */
 export interface CommentQueryParams {
-  /** 项目ID，可选 */
+  /** 项目ID，可选，用于限定查询范围 */
   projectId?: number;
-  /** 筛选类型 */
+  /** 筛选类型，对应 EnumReviewListFilter 枚举值 */
   type?: EnumReviewListFilter;
 }
 
 /**
  * 表格服务
  *
- * 统一管理：列配置、搜索字典、表格数据获取与相关缓存
+ * 统一管理列配置、搜索字典、表格数据获取与相关缓存。
+ * 采用单例模式确保全局只有一个表格服务实例。
  *
  * 主要功能：
  * - 获取列配置信息
@@ -73,20 +36,22 @@ export interface CommentQueryParams {
  * - 管理编辑数据的持久化
  */
 export class TableService {
-  /** 单例实例 */
+  /** 单例实例，确保全局只有一个表格服务 */
   private static instance: TableService;
 
   /**
    * 私有构造函数
    *
-   * 防止外部直接实例化，强制使用单例模式
+   * 防止外部直接实例化，强制使用单例模式。
+   * 通过 getInstance() 方法获取实例。
    */
   private constructor() {}
 
   /**
    * 获取TableService的单例实例
    *
-   * 如果实例不存在则创建新实例，如果已存在则返回现有实例
+   * 如果实例不存在则创建新实例，如果已存在则返回现有实例。
+   * 确保整个应用中只有一个表格服务实例。
    */
   public static getInstance(): TableService {
     if (!TableService.instance) {
@@ -98,53 +63,63 @@ export class TableService {
   /**
    * 获取列配置
    *
-   * 从后端获取表格的列定义信息，包括显示控制、编辑权限等
+   * 优先从缓存获取列配置，如果缓存不存在则从后端获取并持久化。
+   * 列配置包含表格的显示规则、编辑权限、导出设置等信息。
    *
    * 执行流程：
-   * 1. 调用 /client/system/pullColumnDefines 接口
-   * 2. 返回列配置数组，失败时返回空数组
+   * 1. 优先从 StateService 获取缓存的列配置
+   * 2. 如果缓存存在且有效，直接返回缓存数据
+   * 3. 如果缓存不存在，调用 /client/system/pullColumnDefines 接口
+   * 4. 将获取到的列配置保存到缓存中
+   * 5. 返回列配置数组，失败时返回空数组
+   *
+   * @returns 列配置数组，失败时返回空数组
    */
   public async loadGetColumnConfig(): Promise<ColumnConfig[]> {
+    // 优先从缓存获取
+    const stateService = StateService.getInstance();
+    const cachedColumns = stateService.getColumnConfig();
+
+    if (cachedColumns && cachedColumns.length > 0) {
+      return cachedColumns;
+    }
+
+    // 缓存不存在，从后端获取
     try {
       const response = await requestApi<ColumnConfigResponse>({
-        url: "/client/system/pullColumnDefines",
+        url: '/client/system/pullColumnDefines',
         method: EnumHttpMethod.Get,
       });
 
-      return response.columns;
+      const columns = response.columns;
+
+      // 将获取到的列配置保存到缓存中
+      if (columns && columns.length > 0) {
+        stateService.setColumnConfig(columns);
+      }
+
+      return columns;
     } catch {
       return [];
     }
   }
 
   /**
-   * 获取搜索条件字典
-   *
-   * 从后端获取搜索相关的字典数据，用于下拉选择等场景
-   *
-   * 注意：示例结构，后续可按实际接口调整
-   */
-  public async loadGetSearchDictionaries(): Promise<ColumnConfig> {
-    const data = await requestApi<ColumnConfig>({
-      url: "/client/system/pullSearchDictionaries",
-      method: EnumHttpMethod.Get,
-    });
-    return data;
-  }
-
-  /**
    * 获取用户可访问的项目列表
    *
-   * 获取当前用户有权限访问的所有项目，用于Header区域展示
+   * 获取当前用户有权限访问的所有项目，用于Header区域展示。
+   * 项目列表用于用户选择要查询的项目范围。
    *
    * 执行流程：
    * 1. 调用 /client/project/getMyProjects 接口
    * 2. 返回项目列表，失败时返回空数组
+   *
+   * @returns 项目列表数组，失败时返回空数组
    */
   public async loadGetMyProjects(): Promise<ProjectOptionResponse[]> {
     try {
       const data = await requestApi<ProjectOptionResponse[]>({
-        url: "/client/project/getMyProjects",
+        url: '/client/project/getMyProjects',
         method: EnumHttpMethod.Get,
       });
       return data.map((p: ProjectOptionResponse) => ({
@@ -159,21 +134,24 @@ export class TableService {
   /**
    * 并行获取：列配置 + 项目列表
    *
-   * 同时获取表格初始化所需的所有数据，包括列配置、项目列表和评论数据
+   * 同时获取表格初始化所需的所有数据，包括列配置、项目列表和评论数据。
+   * 列配置会被自动持久化到缓存中，提高后续访问性能。
    *
    * 执行流程：
    * 1. 获取持久化的查询上下文状态
-   * 2. 并行获取列配置和项目列表
+   * 2. 并行获取列配置和项目列表（列配置会自动缓存）
    * 3. 检查持久化的项目ID是否还存在
    * 4. 使用最终的查询上下文获取评论数据
    * 5. 返回完整的初始化数据
+   *
+   * @returns 包含列配置、项目列表、评论数据和查询上下文的完整数据
    */
   public async loadGetInitialTable(): Promise<InitialTableData> {
     // 获取持久化的查询上下文状态
     const stateService = StateService.getInstance();
     const queryContext = stateService.getQueryContext();
 
-    // 先获取列配置和项目列表
+    // 先获取列配置和项目列表（列配置会自动缓存）
     const [columns, projects] = await Promise.all([
       this.loadGetColumnConfig(),
       this.loadGetMyProjects(),
@@ -183,7 +161,7 @@ export class TableService {
     let finalQueryContext = queryContext;
     if (queryContext?.projectId !== undefined) {
       const projectExists = projects.some(
-        (p) => p.projectId === queryContext.projectId
+        p => p.projectId === queryContext.projectId,
       );
       if (!projectExists) {
         // 项目不存在，重置查询上下文
@@ -207,36 +185,24 @@ export class TableService {
   }
 
   /**
-   * 获取表格数据
-   *
-   * 根据查询参数获取表格数据，支持分页、筛选、排序
-   */
-  public async loadGetTableData<T extends TableItem = TableItem>(
-    params: TableQueryParams
-  ): Promise<TableDataResponse<T>> {
-    const data = await requestApi<TableDataResponse<T>>({
-      url: "/client/review/list",
-      method: EnumHttpMethod.Post,
-      data: params,
-    });
-    return data;
-  }
-
-  /**
    * 查询评审意见列表
    *
-   * 根据项目ID和筛选类型查询评审评论列表
+   * 根据项目ID和筛选类型查询评审评论列表。
+   * 返回的评论列表会自动进行倒序处理，确保最新的评论在前面。
    *
    * 执行流程：
    * 1. 调用 /client/comment/queryList 接口
    * 2. 对返回的评论列表进行倒序处理
    * 3. 返回处理后的评论数据
+   *
+   * @param params 查询参数，包含项目ID和筛选类型
+   * @returns 评论查询响应，包含倒序后的评论列表
    */
   public async loadQueryComments(
-    params: CommentQueryParams
+    params: CommentQueryParams,
   ): Promise<QueryCommentsResponse> {
     const data = await requestApi<QueryCommentsResponse>({
-      url: "/client/comment/queryList",
+      url: '/client/comment/queryList',
       method: EnumHttpMethod.Post,
       data: params,
     });
@@ -247,17 +213,21 @@ export class TableService {
   /**
    * 提交评审意见
    *
-   * 将用户编辑的评审评论提交到后端保存
+   * 将用户编辑的评审评论提交到后端保存。
+   * 支持批量提交多条评审意见。
    *
    * 执行流程：
    * 1. 调用 /client/comment/commitComments 接口
    * 2. 返回后端处理结果
+   *
+   * @param payload 提交数据，包含要提交的评论列表
+   * @returns 提交结果，包含成功/失败状态和详细信息
    */
   public async loadCommitComments(payload: {
     comments: ReviewCommentItem[];
   }): Promise<CommitCommentsResponse> {
     const data = await requestApi<CommitCommentsResponse>({
-      url: "/client/comment/commitComments",
+      url: '/client/comment/commitComments',
       method: EnumHttpMethod.Post,
       data: payload,
     });
@@ -266,26 +236,40 @@ export class TableService {
   }
 
   /**
-   * 保存编辑数据到扩展端持久化存储
+   * 保存数据到扩展端持久化存储
    *
-   * 将用户编辑过的表格数据保存到本地存储，用于恢复编辑状态
+   * 将用户编辑过的表格数据和新增数据保存到本地存储。
+   * 支持编辑数据和新增数据的分别保存，便于后续恢复和同步。
    *
    * 执行流程：
-   * 1. 将Map格式的编辑数据转换为对象格式
-   * 2. 通过StateService保存到扩展端状态
+   * 1. 将Map格式的编辑数据转换为对象格式并保存
+   * 2. 将Map格式的新增数据转换为对象格式并保存
+   *
+   * @param editData 编辑数据数组，每个元素为 [记录ID, 评论项] 的元组
+   * @param addData 新增数据数组，每个元素为 [记录ID, 评论项] 的元组
    */
-  public async saveEditData(
-    editData: Array<[string, ReviewCommentItem]>
+  public async saveData(
+    editData: Array<[string, ReviewCommentItem]>,
+    addData: Array<[string, ReviewCommentItem]>,
   ): Promise<void> {
     try {
-      // 将 Map 格式的编辑数据转换为对象格式，便于持久化
-      const editDataObject = Object.fromEntries(editData);
-
       // 获取状态服务实例
       const stateService = StateService.getInstance();
 
-      // 保存编辑数据到扩展端状态
+      // 保存编辑数据
+      const editDataObject =
+        editData.length > 0 ? Object.fromEntries(editData) : null;
       stateService.setEditData(editDataObject);
+
+      // 保存新增数据
+      const addDataObject =
+        addData.length > 0 ? Object.fromEntries(addData) : null;
+      console.log(addDataObject, '=== addDataObject ===');
+      if (addDataObject) {
+        stateService.saveAddData(addDataObject);
+      } else {
+        stateService.clearAddData();
+      }
     } catch {
       // ignore
     }
@@ -294,11 +278,14 @@ export class TableService {
   /**
    * 获取持久化的编辑数据
    *
-   * 从本地存储中获取用户之前编辑过的表格数据
+   * 从本地存储中获取用户之前编辑过的表格数据。
+   * 用于在会话间保持用户的编辑状态，提高用户体验。
    *
    * 执行流程：
    * 1. 通过StateService获取编辑数据
    * 2. 失败时返回null
+   *
+   * @returns 编辑数据对象，无数据时返回null
    */
   public getPersistedEditData(): Record<string, ReviewCommentItem> | null {
     try {

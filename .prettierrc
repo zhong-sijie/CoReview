@@ -1,0 +1,31 @@
+{
+  "singleQuote": true,
+  "bracketSameLine": true,
+  "trailingComma": "es5",
+  "printWidth": 80,
+  "arrowParens": "avoid",
+  "plugins": ["@trivago/prettier-plugin-sort-imports", "prettier-plugin-tailwindcss"],
+  "importOrder": [
+    "react",
+    "react-router-",
+    "react-",
+    "<THIRD_PARTY_MODULES>",
+    "@common/",
+    "@shared/",
+    "@/",
+    "^[./]",
+    ".*\\.(css|scss|sass|less)$",
+  ],
+  "importOrderSeparation": false,
+  "importOrderSortSpecifiers": true,
+  "importOrderParserPlugins": ["typescript", "jsx", "decorators-legacy"],
+  "overrides": [
+    {
+      "files": ["*.ts", "*.tsx"],
+      "options": {
+        "trailingComma": "all",
+        "parser": "typescript"
+      }
+    }
+  ]
+}

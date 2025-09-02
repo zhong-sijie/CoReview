@@ -1,6 +1,5 @@
-import React from "react";
-import { Column, useRowSelect, useSortBy, useTable } from "react-table";
-import { ReviewCommentItem } from "@shared/types";
+import { Column, useRowSelect, useSortBy, useTable } from 'react-table';
+import type { ReviewCommentItem } from '@shared/types';
 
 /**
  * 主页主体组件的属性接口
@@ -50,7 +49,7 @@ const HomeMain = (props: Props) => {
    */
   if (loading) {
     return (
-      <div className="h-[200px] grid place-items-center text-center gap-4">
+      <div className="grid h-[200px] place-items-center gap-4 text-center">
         <p className="m-0 opacity-70">加载中...</p>
       </div>
     );
@@ -63,7 +62,7 @@ const HomeMain = (props: Props) => {
    */
   if (!dataSource.length) {
     return (
-      <div className="h-[200px] grid place-items-center text-center gap-4">
+      <div className="grid h-[200px] place-items-center gap-4 text-center">
         <p className="m-0 opacity-70">暂无代码审查数据</p>
       </div>
     );
@@ -74,25 +73,22 @@ const HomeMain = (props: Props) => {
       <div className="overflow-x-auto">
         <table
           {...getTableProps()}
-          className="w-full border-collapse table-fixed border border-[var(--vscode-border)]"
-        >
+          className="w-full table-fixed border-collapse border border-[var(--vscode-panel-border)]">
           <thead>
-            {headerGroups.map((headerGroup) => (
+            {headerGroups.map(headerGroup => (
               <tr
                 {...headerGroup.getHeaderGroupProps()}
-                className="bg-[var(--vscode-list-hoverBackground)]"
-              >
-                {headerGroup.headers.map((column) => (
+                className="bg-[var(--vscode-list-hoverBackground)]">
+                {headerGroup.headers.map(column => (
                   <th
                     {...column.getHeaderProps(
                       // 切换排序，仅允许单列
-                      (column as any).getSortByToggleProps?.() || {}
+                      (column as any).getSortByToggleProps?.() || {},
                     )}
-                    className="text-center text-sm font-medium border-b border-r border-[var(--vscode-border)] text-[var(--vscode-foreground)]"
-                    style={{ width: `${100 / columns.length}%` }}
-                  >
-                    <div className="flex items-center justify-center gap-1 select-none">
-                      {column.render("Header")}
+                    className="border-b border-r border-[var(--vscode-panel-border)] text-center text-sm font-medium text-[var(--vscode-editor-foreground)]"
+                    style={{ width: `${100 / columns.length}%` }}>
+                    <div className="flex select-none items-center justify-center gap-1">
+                      {column.render('Header')}
                       {(column as any).isSorted ? (
                         (column as any).isSortedDesc ? (
                           <span>▼</span>
@@ -107,21 +103,19 @@ const HomeMain = (props: Props) => {
             ))}
           </thead>
           <tbody {...getTableBodyProps()}>
-            {rows.map((row) => {
+            {rows.map(row => {
               prepareRow(row);
               return (
                 <tr
                   {...row.getRowProps()}
-                  className="border-b border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hoverBackground)] transition-colors"
-                >
-                  {row.cells.map((cell) => (
+                  className="border-b border-[var(--vscode-panel-border)] transition-colors hover:bg-[var(--vscode-list-hoverBackground)]">
+                  {row.cells.map(cell => (
                     <td
                       {...cell.getCellProps()}
-                      className="text-sm border-r border-[var(--vscode-border)]"
-                      style={{ width: `${100 / columns.length}%` }}
-                    >
+                      className="border-r border-[var(--vscode-panel-border)] text-sm"
+                      style={{ width: `${100 / columns.length}%` }}>
                       <div className="truncate" title={cell.value?.title}>
-                        {cell.render("Cell")}
+                        {cell.render('Cell')}
                       </div>
                     </td>
                   ))}

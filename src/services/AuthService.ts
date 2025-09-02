@@ -1,8 +1,8 @@
-import * as crypto from "node:crypto";
-import { EnumHttpMethod } from "../../shared/enums";
-import type { CheckAuthResponse, LoginRequest } from "../../shared/types";
-import { requestApi } from "../utils/request";
-import { StateService } from "./StateService";
+import * as crypto from 'node:crypto';
+import { EnumHttpMethod } from '../../shared/enums';
+import type { CheckAuthResponse, LoginRequest } from '../../shared/types';
+import { requestApi } from '../utils/request';
+import { StateService } from './StateService';
 
 /**
  * 鉴权服务（扩展端）
@@ -60,7 +60,7 @@ export class AuthService {
 
     // 校验是否是合法的 URL
     if (!/^https?:\/\//i.test(normalizedServerUrl)) {
-      return Promise.reject(new Error("Invalid server URL"));
+      return Promise.reject(new Error('Invalid server URL'));
     }
 
     try {
@@ -94,17 +94,17 @@ export class AuthService {
    * 5. 成功后通过 StateService 保存登录信息并更新状态
    */
   public async loadLogin(username: string, password: string): Promise<boolean> {
-    const normalizedUsername = String(username || "").trim();
-    const normalizedPassword = String(password || "").trim();
+    const normalizedUsername = String(username || '').trim();
+    const normalizedPassword = String(password || '').trim();
 
     // 按接口要求对密码做 MD5
     const md5Password = crypto
-      .createHash("md5")
+      .createHash('md5')
       .update(normalizedPassword)
-      .digest("hex");
+      .digest('hex');
 
     const data = await requestApi<CheckAuthResponse>({
-      url: "/client/system/checkAuth",
+      url: '/client/system/checkAuth',
       method: EnumHttpMethod.Post,
       data: {
         account: normalizedUsername,
@@ -116,12 +116,12 @@ export class AuthService {
     });
 
     if (!data?.pass) {
-      throw new Error(data?.message || "登录失败: 账号或密码错误");
+      throw new Error('登录失败: 账号或密码错误');
     }
 
     // 通过 StateService 保存登录信息并更新状态
     await this.stateService.saveCredentials(normalizedUsername, md5Password);
-    this.stateService.setUserDetail(null);
+    this.stateService.setUserDetail(data.userInfo);
     this.stateService.setLoggedIn(true);
     this.stateService.setConnectionOk(true);
 

@@ -1,18 +1,18 @@
-import "./App.css";
-import { useEffect } from "react";
+import { useEffect } from 'react';
 import {
-  createHashRouter,
   Navigate,
   Outlet,
   RouterProvider,
+  createHashRouter,
   useLocation,
   useNavigate,
-} from "react-router-dom";
-import { EnumMessageType, EnumWebviewPath } from "@shared/enums";
-import { useAuthState } from "./hooks/useAuthState";
-import HomePage from "./pages/HomePage";
-import LoginPage from "./pages/LoginPage";
-import { postMessage } from "./services/vscodeService";
+} from 'react-router-dom';
+import '@common/base/App.css';
+import { useAuthState } from '@common/hooks/useAuthState';
+import { postMessage } from '@common/services/vscodeService';
+import { EnumMessageType, EnumWebviewPath } from '@shared/enums';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
 
 /**
  * 应用主组件
@@ -86,10 +86,10 @@ function AppRouter() {
       children: [
         { index: true, element: <HomePage /> },
         {
-          path: EnumWebviewPath.Login.replace(/^\//, ""),
+          path: EnumWebviewPath.Login.replace(/^\//, ''),
           element: <LoginPage />,
         },
-        { path: "*", element: <Navigate to={EnumWebviewPath.Root} replace /> },
+        { path: '*', element: <Navigate to={EnumWebviewPath.Root} replace /> },
       ],
     },
   ]);

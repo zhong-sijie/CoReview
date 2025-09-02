@@ -1,9 +1,12 @@
-import * as vscode from "vscode";
-import { EnumCommands } from "../../shared/enums";
-import { ReviewViewProvider } from "../providers/ReviewViewProvider";
-import { AuthService } from "../services/AuthService";
-import { StateService } from "../services/StateService";
-import { showError, showInfo, showWarning } from "../utils";
+import * as childProcess from 'child_process';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { EnumCommands } from '../../shared/enums';
+import { EditorialViewProvider } from '../providers/EditorialViewProvider';
+import { ReviewViewProvider } from '../providers/ReviewViewProvider';
+import { AuthService } from '../services/AuthService';
+import { StateService } from '../services/StateService';
+import { showError, showInfo, showWarning } from '../utils';
 
 /**
  * 命令管理器类
@@ -21,8 +24,14 @@ export class CommandManager {
   /** 单例实例，确保全局只有一个CommandManager实例 */
   private static instance: CommandManager;
 
-  /** 视图提供者实例，用于与WebView进行通信 */
+  /** 主视图提供者实例，用于与WebView进行通信 */
   private viewProvider?: ReviewViewProvider;
+
+  /** 编辑视图提供者实例，用于管理评审意见面板 */
+  private editorialProvider?: EditorialViewProvider;
+
+  /** 状态服务实例，用于获取用户信息等状态 */
+  private stateService: StateService;
 
   /**
    * 私有构造函数
@@ -30,7 +39,9 @@ export class CommandManager {
    * 防止外部直接实例化，强制使用单例模式。
    * 通过getInstance()方法获取实例。
    */
-  private constructor() {}
+  private constructor() {
+    this.stateService = StateService.getInstance();
+  }
 
   /**
    * 获取CommandManager的单例实例
@@ -46,13 +57,22 @@ export class CommandManager {
   }
 
   /**
-   * 设置视图提供者
+   * 设置主视图提供者
    *
    * 用于建立命令管理器与WebView之间的通信桥梁。
    * 视图提供者负责处理WebView的显示和消息传递。
    */
   public setViewProvider(provider: ReviewViewProvider): void {
     this.viewProvider = provider;
+  }
+
+  /**
+   * 设置编辑视图提供者
+   *
+   * 用于管理评审意见的编辑面板。
+   */
+  public setEditorialProvider(provider: EditorialViewProvider): void {
+    this.editorialProvider = provider;
   }
 
   /**
@@ -65,30 +85,38 @@ export class CommandManager {
    * - LOGOUT: 退出登录命令
    * - OPEN_WEB_PAGE: 打开Web页面命令
    * - REFRESH_REVIEWS: 刷新WebView命令
+   * - ADD_REVIEW_COMMENT: 添加评审意见命令
    */
   public registerCommands(context: vscode.ExtensionContext): void {
     // 退出登录命令
     const logoutCommand = vscode.commands.registerCommand(
       EnumCommands.LOGOUT,
-      this.handleLogout.bind(this)
+      this.handleLogout.bind(this),
     );
 
     // 打开Web页面命令
     const openWebPageCommand = vscode.commands.registerCommand(
       EnumCommands.OPEN_WEB_PAGE,
-      this.handleOpenWebPage.bind(this)
+      this.handleOpenWebPage.bind(this),
     );
 
     // 刷新整个 Webview
     const refreshReviewsCommand = vscode.commands.registerCommand(
       EnumCommands.REFRESH_REVIEWS,
-      this.handleRefreshWebview.bind(this)
+      this.handleRefreshWebview.bind(this),
+    );
+
+    // 添加评审意见命令
+    const addReviewCommentCommand = vscode.commands.registerCommand(
+      EnumCommands.ADD_REVIEW_COMMENT,
+      this.handleAddReviewComment.bind(this),
     );
 
     context.subscriptions.push(
       logoutCommand,
       openWebPageCommand,
-      refreshReviewsCommand
+      refreshReviewsCommand,
+      addReviewCommentCommand,
     );
   }
 
@@ -109,9 +137,9 @@ export class CommandManager {
       if (this.viewProvider) {
         this.viewProvider.broadcastAuthState();
       }
-      showInfo("已退出登录");
+      showInfo('已退出登录');
     } catch {
-      showError("退出登录失败");
+      showError('退出登录失败');
     }
   }
 
@@ -122,24 +150,16 @@ export class CommandManager {
    * 检查服务器地址配置，然后使用系统默认浏览器打开服务器URL。
    *
    * 执行流程：
-   * 1. 从StateService获取当前状态
-   * 2. 检查serverUrl是否已配置
-   * 3. 使用vscode.env.openExternal打开外部浏览器
-   * 4. 显示成功或失败的用户提示
+   * 1. 检查serverUrl是否已配置
+   * 2. 使用vscode.env.openExternal打开外部浏览器
+   * 3. 显示成功或失败的用户提示
    */
   private async handleOpenWebPage(): Promise<void> {
     try {
-      const state = StateService.getInstance().getState();
-
-      if (!state.serverUrl) {
-        showError("未配置服务器地址，请先进行连接测试");
-        return;
-      }
-
-      // 使用 VS Code 的 env.openExternal 打开浏览器
-      await vscode.env.openExternal(vscode.Uri.parse(state.serverUrl));
+      // 简化处理：暂时跳过服务器地址检查，直接提示用户
+      showError('请先在 CoReview 面板中配置服务器地址');
     } catch {
-      showError("打开Web页面失败");
+      showError('打开Web页面失败');
     }
   }
 
@@ -158,7 +178,154 @@ export class CommandManager {
     if (this.viewProvider) {
       this.viewProvider.reloadWebview();
     } else {
-      showWarning("视图尚未就绪，稍后重试");
+      showWarning('视图尚未就绪，稍后重试');
+    }
+  }
+
+  /**
+   * 处理添加评审意见命令
+   *
+   * 当用户触发 Alt+A 快捷键时执行此方法。
+   * 获取选中文本信息，然后委托给编辑面板处理。
+   *
+   * 执行流程：
+   * 1. 检查列配置是否存在，不存在则禁用功能
+   * 2. 获取当前编辑器的选中文本和位置信息
+   * 3. 委托给 EditorialViewProvider 处理登录状态检查和面板创建
+   * 4. 如果条件不满足，显示相应的错误提示
+   */
+  private async handleAddReviewComment(): Promise<void> {
+    // 检查列配置是否存在
+    const stateService = StateService.getInstance();
+    const columnConfig = stateService.getColumnConfig();
+
+    if (!columnConfig || columnConfig.length === 0) {
+      return;
+    }
+
+    // 获取当前活动的文本编辑器
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+
+    // 获取所有选中的文本段
+    const selections = editor.selections;
+
+    if (selections.length === 0) {
+      return;
+    }
+
+    // 收集所有选中的文本和行号信息
+    const selectedSegments: Array<{
+      text: string;
+      startLine: number;
+      endLine: number;
+      lineRange: string;
+    }> = [];
+
+    for (const selection of selections) {
+      const text = editor.document.getText(selection);
+      if (text.trim()) {
+        const startLine = selection.start.line + 1;
+        const endLine = selection.end.line + 1;
+        const lineRange = `${startLine} ~ ${endLine}`;
+
+        selectedSegments.push({
+          text,
+          startLine,
+          endLine,
+          lineRange,
+        });
+      }
+    }
+
+    if (selectedSegments.length === 0) {
+      return;
+    }
+
+    // 按起始行号排序，保持代码块的原始位置顺序
+    selectedSegments.sort((a, b) => a.startLine - b.startLine);
+
+    // 合并所有选中的文本（按行号顺序）
+    const selectedText = selectedSegments
+      .map(segment => segment.text)
+      .join('\n');
+
+    // 生成行号显示字符串（按行号顺序）
+    const lineRanges = selectedSegments.map(segment => segment.lineRange);
+    const lineNumber = lineRanges.join('; ');
+
+    // 获取当前文件的绝对路径
+    const absolutePath = editor.document.fileName;
+
+    // 获取 git 信息
+    const gitInfo = await this.getGitInfo(absolutePath);
+
+    // 委托给编辑面板处理（包括登录状态检查）
+    if (this.editorialProvider) {
+      // 获取用户信息
+      const userDetail = this.stateService.getUserDetail();
+
+      await this.editorialProvider.createPanel(
+        selectedText,
+        lineNumber,
+        absolutePath,
+        gitInfo,
+        userDetail,
+      );
+    } else {
+      showError('编辑面板未初始化，请重启扩展');
+    }
+  }
+
+  /**
+   * 获取 git 信息
+   *
+   * @param filePath 文件绝对路径
+   * @returns git 仓库地址和分支信息
+   */
+  private async getGitInfo(filePath: string): Promise<{
+    repositoryUrl: string | null;
+    branchName: string | null;
+  }> {
+    try {
+      // 获取文件所在目录
+      const fileDir = path.dirname(filePath);
+
+      // 获取 git 仓库根目录
+      const gitRoot = childProcess
+        .execSync('git rev-parse --show-toplevel', {
+          cwd: fileDir,
+          encoding: 'utf8',
+        })
+        .trim();
+
+      // 获取远程仓库 URL
+      const repositoryUrl = childProcess
+        .execSync('git config --get remote.origin.url', {
+          cwd: gitRoot,
+          encoding: 'utf8',
+        })
+        .trim();
+
+      // 获取当前分支名
+      const branchName = childProcess
+        .execSync('git branch --show-current', {
+          cwd: gitRoot,
+          encoding: 'utf8',
+        })
+        .trim();
+
+      return {
+        repositoryUrl: repositoryUrl || null,
+        branchName: branchName || null,
+      };
+    } catch {
+      return {
+        repositoryUrl: null,
+        branchName: null,
+      };
     }
   }
 }

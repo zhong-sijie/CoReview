@@ -1,9 +1,4 @@
-import {
-  type EnumInputType,
-  type EnumReviewListFilter,
-  type EnumRoleCode,
-  type EnumUserType,
-} from "./enums";
+import { type EnumInputType, type EnumReviewListFilter } from './enums';
 
 /**
  * VSCode API 全局类型声明
@@ -93,51 +88,15 @@ export interface ColumnConfig {
 }
 
 /**
- * 部门信息接口
- *
- * 描述组织架构中的部门信息，包含部门的基本标识和名称。
- */
-export interface Department {
-  /** 部门的唯一标识符 */
-  id: number;
-  /** 部门的名称 */
-  name: string;
-}
-
-/**
- * 角色信息接口
- *
- * 描述用户的角色权限信息，包含角色标识和名称。
- */
-export interface Role {
-  /** 角色的唯一标识符 */
-  id: number;
-  /** 角色的编码，对应后端定义的角色代码 */
-  roleCode: EnumRoleCode;
-  /** 角色的显示名称，用于用户界面展示 */
-  roleName: string;
-}
-
-/**
  * 用户详情信息接口
  *
  * 描述用户的完整信息，包括基本信息、部门、角色等。
  */
 export interface UserDetail {
-  /** 用户的登录账号 */
-  account: string;
-  /** 用户的真实姓名 */
-  name: string;
-  /** 用户的手机号码，可选字段 */
-  phoneNumber?: string;
-  /** 用户所属的部门信息 */
-  department?: Department;
-  /** 用户拥有的角色列表 */
-  roles?: Role[];
-  /** 用户账号是否启用 */
-  enabled?: boolean;
-  /** 用户的类型分类 */
-  userType?: EnumUserType;
+  /** 用户显示名称 */
+  showName: string;
+  /** 用户账号 */
+  value: string;
 }
 
 /**
@@ -160,8 +119,8 @@ export interface LoginRequest {
 export interface CheckAuthResponse {
   /** 是否通过鉴权检查 */
   pass: boolean;
-  /** 鉴权失败时的错误信息 */
-  message?: string;
+  /** 用户信息 */
+  userInfo: UserDetail;
 }
 
 /**
@@ -416,21 +375,23 @@ export interface LoginPayload extends BaseMessagePayload {
 }
 
 /**
- * 更新编辑数据消息负载接口
+ * 更新编辑数据和新增数据消息负载接口
  *
- * 定义更新用户编辑数据时发送的消息负载。
+ * 定义更新用户编辑数据和新增数据时发送的消息负载。
  */
 export interface UpdateEditDataPayload extends BaseMessagePayload {
   /** 编辑数据的键值对数组，键为记录 ID，值为编辑后的评论项 */
   editData: [string, ReviewCommentItem][];
+  /** 新增数据的键值对数组，键为记录 ID，值为新增的评论项 */
+  addData: [string, ReviewCommentItem][];
 }
 
 /**
- * 提交编辑数据消息负载接口
+ * 提交数据消息负载接口
  *
- * 定义提交编辑完成的评审数据时发送的消息负载。
+ * 定义提交评审数据时发送的消息负载。
  */
-export interface SubmitEditDataPayload extends BaseMessagePayload {
+export interface SubmitDataPayload extends BaseMessagePayload {
   /** 要提交的评审评论项数组 */
   submitData: ReviewCommentItem[];
 }
@@ -441,58 +402,10 @@ export interface SubmitEditDataPayload extends BaseMessagePayload {
  * 定义更新查询条件时发送的消息负载。
  */
 export interface UpdateQueryContextPayload extends BaseMessagePayload {
-  /** 查询的项目 ID，支持字符串或数字类型，可为 undefined */
-  projectId: string | number | undefined;
+  /** 查询的项目 ID */
+  projectId?: number;
   /** 查询的筛选类型 */
-  type: EnumReviewListFilter;
-}
-
-/**
- * 查询评论消息负载接口
- *
- * 定义查询评论列表时发送的消息负载。
- */
-export interface QueryCommentsPayload extends BaseMessagePayload {
-  /** 查询的项目 ID，支持字符串或数字类型，可为 undefined */
-  projectId: string | number | undefined;
-  /** 查询的筛选类型 */
-  type: EnumReviewListFilter;
-}
-
-/**
- * 获取鉴权状态消息负载接口
- *
- * 定义获取当前鉴权状态时发送的消息负载。
- */
-export interface GetAuthStatePayload extends BaseMessagePayload {
-  // 空负载，仅用于触发获取状态
-}
-
-/**
- * 获取初始数据消息负载接口
- *
- * 定义获取应用初始化数据时发送的消息负载。
- */
-export interface GetInitialDataPayload extends BaseMessagePayload {
-  // 空负载，仅用于触发获取数据
-}
-
-/**
- * 退出登录消息负载接口
- *
- * 定义退出登录时发送的消息负载。
- */
-export interface LogoutPayload extends BaseMessagePayload {
-  // 空负载，仅用于触发退出登录
-}
-
-/**
- * Webview 就绪消息负载接口
- *
- * 定义 Webview 组件挂载完成时发送的消息负载。
- */
-export interface WebviewReadyPayload extends BaseMessagePayload {
-  // 空负载，仅用于通知 Webview 已就绪
+  type?: EnumReviewListFilter;
 }
 
 /**
@@ -519,6 +432,8 @@ export interface AuthStatePayload {
 export interface TableDataLoadedPayload extends InitialTableData {
   /** 持久化存储的编辑数据，用于恢复用户的编辑状态 */
   editData?: Record<string, ReviewCommentItem> | null;
+  /** 新增的评审意见 */
+  addData?: Record<string, ReviewCommentItem>;
 }
 
 /**
@@ -532,6 +447,26 @@ export interface CommentsLoadedPayload {
 }
 
 /**
+ * 保存评审意见消息负载接口
+ *
+ * 定义保存评审意见时发送的消息负载。
+ */
+export interface SaveReviewCommentPayload extends BaseMessagePayload {
+  /** 评审意见数据，使用 Record<string, ReviewCommentItem> 格式与编辑数据保持一致 */
+  comment: Record<string, ReviewCommentItem>;
+}
+
+/**
+ * 新增评审意见事件负载接口
+ *
+ * 定义新增评审意见事件的消息负载。
+ */
+export interface NewReviewCommentAddedPayload {
+  /** 新增的评审意见 */
+  addData: Record<string, ReviewCommentItem>;
+}
+
+/**
  * 所有消息负载的联合类型
  *
  * 包含所有可能的消息负载类型，用于严格的类型检查。
@@ -540,13 +475,10 @@ export type AllMessagePayloads =
   | TestConnectionPayload
   | LoginPayload
   | UpdateEditDataPayload
-  | SubmitEditDataPayload
+  | SubmitDataPayload
   | UpdateQueryContextPayload
-  | QueryCommentsPayload
-  | GetAuthStatePayload
-  | GetInitialDataPayload
-  | LogoutPayload
-  | WebviewReadyPayload
+  | SaveReviewCommentPayload
+  | NewReviewCommentAddedPayload
   | AuthStatePayload
   | TableDataLoadedPayload
   | CommentsLoadedPayload;

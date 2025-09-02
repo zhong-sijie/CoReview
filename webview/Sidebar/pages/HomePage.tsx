@@ -1,33 +1,31 @@
-import { cloneDeep, isEqual } from "lodash-es";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import ReactModal from "react-modal";
-import { Column } from "react-table";
-import {
-  DEFAULT_REVIEW_FILTER_OPTION,
-  REVIEW_FILTER_OPTIONS,
-} from "@shared/constants";
-import { EnumInputType, EnumMessageType } from "@shared/enums";
-import {
-  ColumnConfig,
-  ReviewCommentItem,
-  type ProjectOptionResponse,
-  type ProjectSelectOption,
-  type ReviewListFilterOption,
-  type TableDataLoadedPayload,
-  ReviewCommentValues,
-  ReviewFieldValue,
-  type ExtensionMessage,
-} from "@shared/types";
-import EditableField from "../components/EditableField";
-import HomeFooter from "../components/HomeFooter";
-import HomeHeader from "../components/HomeHeader";
-import HomeMain from "../components/HomeMain";
-import { useAsyncAction } from "../hooks/useAsyncAction";
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Column } from 'react-table';
+import { cloneDeep, isEqual } from 'lodash-es';
+import ConfirmModal from '@common/components/ConfirmModal';
+import { EnumModalAction } from '@common/components/ConfirmModal.types';
+import EditableField from '@common/components/EditableField';
+import HomeFooter from '@common/components/HomeFooter';
+import HomeHeader from '@common/components/HomeHeader';
+import HomeMain from '@common/components/HomeMain';
+import { useAsyncAction } from '@common/hooks/useAsyncAction';
 import {
   onMessage,
-  removeMessageHandler,
   postMessage,
-} from "../services/vscodeService";
+  removeMessageHandler,
+} from '@common/services/vscodeService';
+import { REVIEW_FILTER_OPTIONS } from '@shared/constants';
+import { EnumInputType, EnumMessageType } from '@shared/enums';
+import type {
+  ColumnConfig,
+  ExtensionMessage,
+  ProjectOptionResponse,
+  ProjectSelectOption,
+  ReviewCommentItem,
+  ReviewCommentValues,
+  ReviewFieldValue,
+  ReviewListFilterOption,
+  TableDataLoadedPayload,
+} from '@shared/types';
 
 /**
  * 主页组件
@@ -58,18 +56,6 @@ interface AccessorReturnValue {
   row: ReviewCommentItem;
 }
 
-/**
- * 弹窗操作类型枚举
- *
- * 定义确认弹窗支持的操作类型，用于区分重置和提交操作。
- */
-enum EnumModalAction {
-  /** 重置操作 */
-  Reset = "reset",
-  /** 提交操作 */
-  Submit = "submit",
-}
-
 const HomePage = () => {
   /**
    * 原始评审意见列表（不可修改）
@@ -78,12 +64,19 @@ const HomePage = () => {
    * 用于比较编辑后的数据，判断是否有实际修改。
    */
   const [originalReviews, setOriginalReviews] = useState<ReviewCommentItem[]>(
-    []
+    [],
   );
 
-  useEffect(() => {
-    console.log("=== originalReviews ===", originalReviews);
-  }, [originalReviews]);
+  /**
+   * 新增的评审意见存储
+   *
+   * 存储本地新增的评审意见，这些数据还未同步到服务器。
+   * 新增的数据会显示在列表最上方，且不受筛选条件影响。
+   * 使用 Map 格式与编辑数据保持一致。
+   */
+  const [addData, setAddData] = useState<Map<string, ReviewCommentItem>>(
+    new Map(),
+  );
 
   /**
    * 编辑数据存储（只保存修改过的数据）
@@ -92,7 +85,7 @@ const HomePage = () => {
    * 这样可以避免重复存储未修改的数据，提高性能。
    */
   const [editData, setEditData] = useState<Map<string, ReviewCommentItem>>(
-    new Map()
+    new Map(),
   );
 
   /**
@@ -125,7 +118,7 @@ const HomePage = () => {
     /** 项目选择 */
     project?: ProjectSelectOption;
     /** 筛选类型 */
-    statusValue: ReviewListFilterOption;
+    statusValue?: ReviewListFilterOption;
   };
 
   /**
@@ -135,7 +128,7 @@ const HomePage = () => {
    */
   const [queryContext, setQueryContext] = useState<FrontendQueryContext>({
     project: undefined,
-    statusValue: DEFAULT_REVIEW_FILTER_OPTION,
+    statusValue: undefined,
   });
 
   /**
@@ -162,7 +155,7 @@ const HomePage = () => {
    */
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [modalAction, setModalAction] = useState<EnumModalAction>(
-    EnumModalAction.Reset
+    EnumModalAction.Reset,
   );
 
   // 异步消息执行（分离 hook 以便分别控制 loading）
@@ -176,19 +169,6 @@ const HomePage = () => {
   /** 查询评论的异步操作 */
   const { execute: runQueryComments, loading: queryingCommentsLoading } =
     useAsyncAction();
-
-  /**
-   * ReactModal 无障碍绑定
-   *
-   * 设置ReactModal的根元素，仅需执行一次。
-   */
-  useEffect(() => {
-    try {
-      ReactModal.setAppElement("#root");
-    } catch {
-      // ignore
-    }
-  }, []);
 
   /**
    * 处理表格数据加载完成事件
@@ -207,6 +187,7 @@ const HomePage = () => {
         comments = [],
         editData: persistedEditData,
         queryContext,
+        addData: initialAddData = {},
       } = message.payload || {};
 
       // 更新加载状态，表示数据已加载完成
@@ -221,10 +202,18 @@ const HomePage = () => {
       // 更新原始评审数据
       setOriginalReviews(comments);
 
+      // 更新新增的评审意见，将 Record 格式转换为 Map 格式
+      if (initialAddData) {
+        const addDataMap = new Map(Object.entries(initialAddData));
+        console.log(addDataMap, '=== addDataMap ===');
+        setAddData(addDataMap);
+      }
+
       // 如果有持久化的编辑数据，将其转换为 Map 格式并设置到状态中
       // 这确保了页面刷新后用户的编辑内容不会丢失
       if (persistedEditData) {
         const editDataMap = new Map(Object.entries(persistedEditData));
+        console.log(editDataMap, '=== editDataMap ===');
         setEditData(editDataMap);
       }
 
@@ -232,7 +221,7 @@ const HomePage = () => {
       if (queryContext) {
         const project =
           queryContext.projectId !== undefined
-            ? projects.find((p) => p.projectId === queryContext.projectId)
+            ? projects.find(p => p.projectId === queryContext.projectId)
             : undefined;
 
         const projectOption = project
@@ -242,17 +231,17 @@ const HomePage = () => {
         const filterOption =
           queryContext.filterType !== undefined
             ? REVIEW_FILTER_OPTIONS.find(
-                (option) => option.value === queryContext.filterType
+                option => option.value === queryContext.filterType,
               )
-            : DEFAULT_REVIEW_FILTER_OPTION;
+            : undefined;
 
         setQueryContext({
           project: projectOption,
-          statusValue: filterOption || DEFAULT_REVIEW_FILTER_OPTION,
+          statusValue: filterOption,
         });
       }
     },
-    []
+    [],
   );
 
   /**
@@ -265,14 +254,14 @@ const HomePage = () => {
     // 注册消息处理器，监听表格数据加载完成事件
     onMessage<TableDataLoadedPayload>(
       EnumMessageType.TableDataLoaded,
-      handleTableDataLoaded
+      handleTableDataLoaded,
     );
 
     // 清理函数：组件卸载时移除消息处理器
     return () => {
       removeMessageHandler<TableDataLoadedPayload>(
         EnumMessageType.TableDataLoaded,
-        handleTableDataLoaded
+        handleTableDataLoaded,
       );
     };
   }, [handleTableDataLoaded]);
@@ -298,7 +287,7 @@ const HomePage = () => {
       }
 
       // 更新编辑数据存储
-      setEditData((old) => {
+      setEditData(old => {
         // 创建新的 Map 实例，避免直接修改原对象
         const newEditData = new Map(old);
 
@@ -312,7 +301,7 @@ const HomePage = () => {
           case EnumInputType.COMBO_BOX:
             // 对于下拉框类型，根据显示名称找到对应的枚举值对象
             existingRow.values[columnCode as keyof ReviewCommentValues] =
-              enumValues?.find((item) => item.showName === value) ||
+              enumValues?.find(item => item.showName === value) ||
               ({} as ReviewFieldValue<string>);
             break;
 
@@ -324,24 +313,35 @@ const HomePage = () => {
             };
         }
 
-        /** 获取原始 row */
-        const originalRow = originalReviews.find((item) => item.id === row.id);
+        /** 获取原始 row，需要同时从原始评审数据和新增评审意见中查找 */
+        const originalRow = originalReviews.find(item => item.id === row.id);
+        const isNewRow = addData.has(row.id);
 
-        // 判断原始 row 和 existingRow 是否完全一致，使用 lodash-es
-        const isSame = isEqual(originalRow?.values, existingRow.values);
-
-        if (isSame) {
-          // 如果原始 row 和 existingRow 完全一致，则删除 existingRow
-          newEditData.delete(row.id);
+        if (isNewRow) {
+          // 如果是新增的行，更新到 addData 中
+          setAddData(oldAddData => {
+            const newAddData = new Map(oldAddData);
+            newAddData.set(row.id, existingRow);
+            return newAddData;
+          });
         } else {
-          // 将更新后的行数据存储到 Map 中
-          newEditData.set(row.id, existingRow);
+          // 如果是原始行，判断是否有实际修改
+          const isSame = isEqual(originalRow?.values, existingRow.values);
+
+          if (isSame && originalRow) {
+            // 如果原始 row 和 existingRow 完全一致，则删除编辑数据
+            newEditData.delete(row.id);
+          } else {
+            // 将更新后的行数据存储到编辑数据 Map 中
+            newEditData.set(row.id, existingRow);
+          }
         }
 
-        // 发送完整的编辑数据到扩展端进行持久化
+        // 发送完整的编辑数据和新增数据到扩展端进行持久化
         // 将 Map 转换为数组格式以便序列化
         postMessage(EnumMessageType.UpdateEditData, {
           editData: Array.from(newEditData.entries()),
+          addData: Array.from(addData.entries()),
         });
 
         return newEditData;
@@ -349,7 +349,7 @@ const HomePage = () => {
 
       setEditingCell(undefined);
     },
-    [originalReviews]
+    [originalReviews, addData],
   );
 
   /**
@@ -377,10 +377,12 @@ const HomePage = () => {
    * 合并原始数据和编辑数据
    *
    * 将用户修改的数据与原始数据合并，生成最终的显示数据。
+   * 新增的评审意见会显示在最上方，且不受筛选条件影响。
    * 使用 useMemo 优化性能，只在依赖项变化时重新计算。
    */
   const mergedReviews = useMemo(() => {
-    return originalReviews.map((review) => {
+    // 1. 处理原始数据和编辑数据的合并
+    const processedOriginalReviews = originalReviews.map(review => {
       // 查找是否有该行的编辑数据
       const editedRow = editData.get(review.id);
       if (!editedRow) {
@@ -391,7 +393,12 @@ const HomePage = () => {
       // 如果有编辑数据，返回编辑后的行数据
       return editedRow;
     });
-  }, [originalReviews, editData]);
+
+    // 2. 将新增的评审意见放在最前面
+    // 新增的评审意见永远在最上方，不接受排序和筛选条件影响
+    const addDataArray = Array.from(addData.values());
+    return [...addDataArray, ...processedOriginalReviews];
+  }, [originalReviews, editData, addData]);
 
   /**
    * 获取单元格显示文本
@@ -406,7 +413,7 @@ const HomePage = () => {
       ] as any;
       return (fv?.showName ?? fv?.value) as string | number | undefined;
     },
-    []
+    [],
   );
 
   /**
@@ -415,10 +422,10 @@ const HomePage = () => {
    * 数字优先，其次字符串，用于表格排序。
    */
   const compareByTitle = useCallback((a: unknown, b: unknown) => {
-    const av = a === null || a === undefined ? "" : (a as any);
-    const bv = b === null || b === undefined ? "" : (b as any);
-    const an = typeof av === "number" ? av : Number(av);
-    const bn = typeof bv === "number" ? bv : Number(bv);
+    const av = a === null || a === undefined ? '' : (a as any);
+    const bv = b === null || b === undefined ? '' : (b as any);
+    const an = typeof av === 'number' ? av : Number(av);
+    const bn = typeof bv === 'number' ? bv : Number(bv);
     const bothNumbers = !Number.isNaN(an) && !Number.isNaN(bn);
     if (bothNumbers) {
       return an === bn ? 0 : an > bn ? 1 : -1;
@@ -441,7 +448,7 @@ const HomePage = () => {
         ?.title;
       return compareByTitle(a, b);
     },
-    [compareByTitle]
+    [compareByTitle],
   );
 
   /**
@@ -451,20 +458,49 @@ const HomePage = () => {
    */
   useEffect(() => {
     const handler = (
-      message: ExtensionMessage<{ comments: ReviewCommentItem[] }>
+      message: ExtensionMessage<{ comments: ReviewCommentItem[] }>,
     ) => {
       const { comments = [] } = message.payload || {};
       setOriginalReviews(comments);
     };
     onMessage<{ comments: ReviewCommentItem[] }>(
       EnumMessageType.CommentsLoaded,
-      handler
+      handler,
     );
     return () => {
       removeMessageHandler<{ comments: ReviewCommentItem[] }>(
         EnumMessageType.CommentsLoaded,
-        handler
+        handler,
       );
+    };
+  }, []);
+
+  /**
+   * 监听新增评审意见事件
+   *
+   * 当有新的评审意见被添加时，更新新增评审意见列表。
+   */
+  useEffect(() => {
+    const handleNewReviewCommentAdded = (
+      message: ExtensionMessage<{
+        addData: Record<string, ReviewCommentItem>;
+      }>,
+    ) => {
+      const { addData: newAddData = {} } = message.payload || {};
+      // 将 Record 格式转换为 Map 格式
+      if (newAddData) {
+        const addDataMap = new Map(Object.entries(newAddData));
+        setAddData(addDataMap);
+      }
+    };
+    onMessage<{ addData: Record<string, ReviewCommentItem> }>(
+      EnumMessageType.NewReviewCommentAdded,
+      handleNewReviewCommentAdded,
+    );
+    return () => {
+      removeMessageHandler<{
+        addData: Record<string, ReviewCommentItem>;
+      }>(EnumMessageType.NewReviewCommentAdded, handleNewReviewCommentAdded);
     };
   }, []);
 
@@ -503,40 +539,49 @@ const HomePage = () => {
         type,
       });
     },
-    [runQueryComments]
+    [runQueryComments],
   );
 
   /**
-   * 重置实现：清空编辑并按当前筛选重新查询
+   * 重置实现：清空编辑和新增数据并按当前筛选重新查询
    *
-   * 清空所有编辑数据并重新查询当前筛选条件下的数据。
+   * 清空所有编辑数据和新增数据，并重新查询当前筛选条件下的数据。
    */
   const doReset = useCallback(() => {
     setEditData(new Map());
-    postMessage(EnumMessageType.UpdateEditData, { editData: [] });
-    queryComments(queryContext.project?.value, queryContext.statusValue.value);
+    setAddData(new Map());
+    postMessage(EnumMessageType.UpdateEditData, { editData: [], addData: [] });
+    queryComments(queryContext.project?.value, queryContext.statusValue?.value);
   }, [queryContext, queryComments]);
 
   /**
    * 提交实现：触发扩展端提交流程
    *
-   * 先同步查询上下文，再提交编辑数据，最后清空本地编辑数据。
+   * 先同步查询上下文，再提交编辑数据和新增数据，最后清空本地数据。
    */
   const doSubmit = useCallback(async () => {
     const editDataArray = Array.from(editData.values());
+    const addDataArray = Array.from(addData.values());
+
     // 1) 先同步上下文（等待扩展端确认）
     await runUpdateContext(EnumMessageType.UpdateQueryContext, {
       projectId: queryContext.project?.value,
-      type: queryContext.statusValue.value,
+      type: queryContext.statusValue?.value,
     });
-    // 2) 再提交数据
-    await runSubmit(EnumMessageType.SubmitEditData, {
-      submitData: editDataArray,
-    });
-    // 3) 提交成功后，清空本地与持久化的编辑数据
+
+    // 2) 合并编辑数据和新增数据后一起提交
+    const allSubmitData = [...editDataArray, ...addDataArray];
+    if (allSubmitData.length > 0) {
+      await runSubmit(EnumMessageType.SubmitData, {
+        submitData: allSubmitData,
+      });
+    }
+
+    // 3) 提交成功后，清空本地与持久化的数据
     setEditData(new Map());
-    postMessage(EnumMessageType.UpdateEditData, { editData: [] });
-  }, [editData, queryContext, runUpdateContext, runSubmit]);
+    setAddData(new Map());
+    postMessage(EnumMessageType.UpdateEditData, { editData: [], addData: [] });
+  }, [editData, addData, queryContext, runUpdateContext, runSubmit]);
 
   /**
    * 确认分发
@@ -577,7 +622,7 @@ const HomePage = () => {
             editingCell?.columnId === col.columnCode;
           return (
             <EditableField
-              title={title || ""}
+              title={title || ''}
               col={col}
               row={row}
               isEditing={isEditing}
@@ -599,7 +644,7 @@ const HomePage = () => {
       handleStartEdit,
       handleStopEdit,
       updateMyData,
-    ]
+    ],
   );
 
   /**
@@ -611,10 +656,10 @@ const HomePage = () => {
   const tableColumns = useMemo<Column<ReviewCommentItem>[]>(
     () =>
       columns
-        .filter((col) => col.showInIdeaTable)
+        .filter(col => col.showInIdeaTable)
         .sort((a, b) => a.sortIndex - b.sortIndex)
         .map(toReactTableColumn),
-    [columns, toReactTableColumn]
+    [columns, toReactTableColumn],
   );
 
   /**
@@ -628,22 +673,22 @@ const HomePage = () => {
       statusValue,
     }: {
       project?: ProjectSelectOption;
-      statusValue: ReviewListFilterOption;
+      statusValue?: ReviewListFilterOption;
     }) => {
       const nextProject = project;
-      const nextFilter = statusValue ?? DEFAULT_REVIEW_FILTER_OPTION;
+      const nextFilter = statusValue;
       setQueryContext({ project: nextProject, statusValue: nextFilter });
 
       // 1) 同步上下文到扩展端
       postMessage(EnumMessageType.UpdateQueryContext, {
         projectId: nextProject?.value,
-        type: nextFilter.value,
+        type: nextFilter?.value,
       });
 
       // 2) 使用最新状态查询列表数据
-      queryComments(nextProject?.value, nextFilter.value);
+      queryComments(nextProject?.value, nextFilter?.value);
     },
-    [queryComments]
+    [queryComments],
   );
 
   /**
@@ -652,7 +697,7 @@ const HomePage = () => {
    * 包含头部（项目选择和筛选）、主体（数据表格）和底部组件。
    */
   return (
-    <div className="w-full h-screen flex flex-col overflow-hidden">
+    <div className="flex h-screen w-full min-w-[600px] flex-col overflow-hidden">
       {/* 头部组件 */}
       <HomeHeader
         projects={projects}
@@ -663,6 +708,7 @@ const HomePage = () => {
         submittingLoading={submittingLoading}
         queryingCommentsLoading={queryingCommentsLoading}
         editedCount={editedCount}
+        addedCount={addData.size}
         onReset={handleReset}
         onSubmit={handleOpenSubmit}
       />
@@ -675,63 +721,15 @@ const HomePage = () => {
       {/* 底部组件 */}
       <HomeFooter />
 
-      {/* 重置确认弹窗（ReactModal） */}
-      <ReactModal
+      {/* 重置确认弹窗 */}
+      <ConfirmModal
         isOpen={showResetConfirm}
-        onRequestClose={handleCancelReset}
-        style={{
-          overlay: {
-            backgroundColor: "rgba(0,0,0,0.4)",
-          },
-          content: {
-            background: "var(--vscode-editor-background)",
-            color: "var(--vscode-editor-foreground)",
-            display: "flex",
-            flexDirection: "column",
-          },
-        }}
-        ariaHideApp={true}
-        shouldCloseOnEsc={true}
-        shouldCloseOnOverlayClick={true}
-      >
-        {/* 头部 */}
-        <div className="pb-2">
-          <h3 className="m-0 text-base">
-            {modalAction === EnumModalAction.Reset ? "确认重置" : "确认提交"}
-          </h3>
-        </div>
-        {/* 内容区域（flex:1 撑开） */}
-        <div className="flex-1">
-          <p className="m-0 mb-1 text-sm opacity-80">
-            当前共有 <span className="font-semibold">{editedCount}</span>{" "}
-            条已编辑数据。
-          </p>
-          {modalAction === EnumModalAction.Reset ? (
-            <p className="m-0 text-sm opacity-80">
-              确认后将清空这些编辑，且该操作不可撤销。是否继续？
-            </p>
-          ) : (
-            <p className="m-0 text-sm opacity-80">
-              将提交当前所有已编辑的数据。是否继续？
-            </p>
-          )}
-        </div>
-        {/* 底部 */}
-        <div className="pt-3 flex justify-end gap-2">
-          <button
-            className="text-xs px-3 py-1 rounded border border-[var(--vscode-border)] hover:bg-[var(--vscode-list-hoverBackground)]"
-            onClick={handleCancelReset}
-          >
-            取消
-          </button>
-          <button
-            className="text-xs px-3 py-1 rounded border border-[var(--vscode-inputValidation-errorBorder)] bg-[var(--vscode-inputValidation-errorBackground)] text-[var(--vscode-editor-foreground)] hover:opacity-90"
-            onClick={handleConfirm}
-          >
-            {modalAction === EnumModalAction.Reset ? "确认重置" : "确认提交"}
-          </button>
-        </div>
-      </ReactModal>
+        modalAction={modalAction}
+        editDataSize={editData.size}
+        addDataSize={addData.size}
+        onCancel={handleCancelReset}
+        onConfirm={handleConfirm}
+      />
     </div>
   );
 };

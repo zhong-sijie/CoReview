@@ -1,10 +1,11 @@
-import { EnumMessageType } from "@shared/enums";
+import { EnumMessageType } from '@shared/enums';
 import type {
+  AllMessagePayloads,
   AsyncResult,
   ExtensionMessage,
   Message,
-  AllMessagePayloads,
-} from "@shared/types";
+} from '@shared/types';
+import { createUniqueId } from '@shared/utils';
 
 /**
  * VS Code 服务模块
@@ -58,12 +59,12 @@ const authStateHandlers: Set<(message: ExtensionMessage<unknown>) => void> =
  */
 export function initializeVSCodeService(): void {
   // 获取VSCode API
-  if (typeof window !== "undefined" && window.acquireVsCodeApi) {
+  if (typeof window !== 'undefined' && window.acquireVsCodeApi) {
     vscode = window.acquireVsCodeApi();
   }
 
   // 监听来自扩展的消息
-  window.addEventListener("message", (event: MessageEvent) => {
+  window.addEventListener('message', (event: MessageEvent) => {
     const message = event.data as ExtensionMessage;
     handleMessage(message);
   });
@@ -84,7 +85,7 @@ export function initializeVSCodeService(): void {
 function handleMessage(message: ExtensionMessage<unknown>): void {
   // 特殊处理 AuthState 消息
   if (message.type === EnumMessageType.AuthState) {
-    authStateHandlers.forEach((handler) => {
+    authStateHandlers.forEach(handler => {
       try {
         handler(message);
       } catch {
@@ -95,12 +96,13 @@ function handleMessage(message: ExtensionMessage<unknown>): void {
   }
 
   const handler = messageHandlers.get(message.type);
+
   if (handler) {
     // 回调消息: 以 cb: 前缀标识
-    if (typeof message.type === "string" && message.type.startsWith("cb:")) {
+    if (typeof message.type === 'string' && message.type.startsWith('cb:')) {
       try {
         (handler as (result: AsyncResult) => void)(
-          message.payload as AsyncResult
+          message.payload as AsyncResult,
         );
       } finally {
         // 一次性回调，使用后清理
@@ -125,7 +127,7 @@ function handleMessage(message: ExtensionMessage<unknown>): void {
  */
 export function postMessage(
   type: EnumMessageType,
-  payload: AllMessagePayloads
+  payload: AllMessagePayloads,
 ): void {
   if (vscode) {
     vscode.postMessage({ type, payload });
@@ -152,24 +154,21 @@ export function postMessage(
 export function postMessageWithCallback(
   type: EnumMessageType,
   payload: unknown,
-  callback: (result: AsyncResult) => void
+  callback: (result: AsyncResult) => void,
 ): void {
   if (vscode) {
     // 生成唯一的回调ID
-    const callbackId =
-      "cb:" + Date.now().toString(36) + Math.random().toString(36).substr(2);
+    const callbackId = 'cb:' + createUniqueId();
 
     // 存储回调函数
     messageHandlers.set(callbackId, callback);
 
     // 发送消息，包含回调ID
-    const basePayload =
-      typeof payload === "object" && payload !== null
-        ? (payload as Record<string, unknown>)
-        : {};
+    const basePayload = payload || {};
+
     vscode.postMessage({
       type,
-      payload: { ...basePayload, callbackId },
+      payload: { ...basePayload, callbackId } as AllMessagePayloads,
     });
   }
 }
@@ -185,12 +184,12 @@ export function postMessageWithCallback(
  */
 export function onMessage<TPayload = unknown>(
   type: EnumMessageType,
-  handler: (message: ExtensionMessage<TPayload>) => void
+  handler: (message: ExtensionMessage<TPayload>) => void,
 ): void {
   // 特殊处理 AuthState 消息，支持多个处理器
   if (type === EnumMessageType.AuthState) {
     authStateHandlers.add(
-      handler as unknown as (message: ExtensionMessage<unknown>) => void
+      handler as unknown as (message: ExtensionMessage<unknown>) => void,
     );
   } else {
     messageHandlers.set(type, handler as (message: Message<unknown>) => void);
@@ -208,11 +207,11 @@ export function onMessage<TPayload = unknown>(
  */
 export function removeMessageHandler<TPayload = unknown>(
   type: EnumMessageType,
-  handler: (message: ExtensionMessage<TPayload>) => void
+  handler: (message: ExtensionMessage<TPayload>) => void,
 ): void {
   if (type === EnumMessageType.AuthState) {
     authStateHandlers.delete(
-      handler as unknown as (message: ExtensionMessage<unknown>) => void
+      handler as unknown as (message: ExtensionMessage<unknown>) => void,
     );
   } else {
     messageHandlers.delete(type);

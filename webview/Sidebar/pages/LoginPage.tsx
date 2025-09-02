@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { EnumMessageType } from "@shared/enums";
-import type { ExtensionMessage } from "@shared/types";
-import { useAsyncAction } from "../hooks/useAsyncAction";
-import { onMessage, postMessage } from "../services/vscodeService";
+import { useEffect, useMemo, useState } from 'react';
+import { useAsyncAction } from '@common/hooks/useAsyncAction';
+import { onMessage, postMessage } from '@common/services/vscodeService';
+import { EnumMessageType } from '@shared/enums';
+import type { ExtensionMessage } from '@shared/types';
 
 /**
  * 登录页面组件
@@ -30,13 +30,13 @@ type AuthStatePayload = {
 
 const LoginPage = () => {
   /** 服务端地址输入值 */
-  const [serverUrl, setServerUrl] = useState("");
+  const [serverUrl, setServerUrl] = useState('');
   /** 连接测试状态，true表示连接成功 */
   const [connectionOk, setConnectionOk] = useState(false);
   /** 用户名输入值 */
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState('');
   /** 密码输入值 */
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState('');
 
   // 异步操作 hooks
   /** 连接测试的异步操作 */
@@ -61,13 +61,13 @@ const LoginPage = () => {
       EnumMessageType.AuthState,
       (message: ExtensionMessage<AuthStatePayload>) => {
         const { serverUrl, connectionOk } = message.payload || {};
-        setServerUrl(serverUrl || "");
+        setServerUrl(serverUrl || '');
         setConnectionOk(!!connectionOk);
         if (!connectionOk) {
-          setUsername("");
-          setPassword("");
+          setUsername('');
+          setPassword('');
         }
-      }
+      },
     );
 
     // 向扩展端请求当前认证状态
@@ -82,7 +82,7 @@ const LoginPage = () => {
    */
   const canEditLoginForm = useMemo(
     () => connectionOk && !testConnectionAction.loading,
-    [connectionOk, testConnectionAction.loading]
+    [connectionOk, testConnectionAction.loading],
   );
 
   /**
@@ -94,7 +94,9 @@ const LoginPage = () => {
   const handleTestConnection = async () => {
     const { success } = await testConnectionAction.execute(
       EnumMessageType.TestConnection,
-      { serverUrl }
+      {
+        serverUrl,
+      },
     );
 
     setConnectionOk(success);
@@ -121,38 +123,37 @@ const LoginPage = () => {
    * 使用VS Code主题变量确保与编辑器主题保持一致。
    */
   return (
-    <div className="w-full h-full grid place-items-center p-4">
-      <div className="w-full max-w-[720px] mx-auto rounded-xl border border-[var(--vscode-border)]/60 p-0 overflow-hidden">
+    <div className="grid h-full w-full place-items-center p-4">
+      <div className="mx-auto w-full max-w-[720px] overflow-hidden rounded-xl border border-[var(--vscode-panel-border)] p-0">
         <div className="grid grid-cols-1 md:grid-cols-[1.2fr_1fr]">
           <div className="p-6 md:p-8">
-            <div className="flex items-center justify-start mb-4">
+            <div className="mb-4 flex items-center justify-start">
               <div className="flex items-center gap-0">
                 <h2 className="m-0 text-[16px] font-bold">CoReview 登录</h2>
               </div>
             </div>
 
-            <p className="m-0 mb-5 opacity-80 text-[12px]">
+            <p className="m-0 mb-5 text-[12px] opacity-80">
               先配置服务端地址并测试连接，然后使用账号密码登录。
             </p>
 
             <div className="mb-4">
-              <label className="block mb-2 text-[11px] font-semibold">
+              <label className="mb-2 block text-[11px] font-semibold">
                 服务端地址
               </label>
               <div className="grid grid-cols-[1fr_auto] gap-2">
                 <input
-                  className="w-full px-3 py-2 rounded-md border bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border-[var(--vscode-focus-border)] focus:outline-none focus:border-[var(--vscode-focus-border)] focus:ring-1 focus:ring-[var(--vscode-focus-border)]"
+                  className="w-full rounded-md border border-[var(--vscode-focusBorder)] bg-[var(--vscode-input-background)] px-3 py-2 text-[var(--vscode-input-foreground)] focus:border-[var(--vscode-focusBorder)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
                   type="text"
                   placeholder="https://your-server"
                   value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
+                  onChange={e => setServerUrl(e.target.value)}
                 />
                 <button
-                  className="px-4 py-2 text-[11px] font-semibold rounded-md border border-transparent bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] disabled:opacity-60"
+                  className="rounded-md border border-transparent bg-[var(--vscode-button-background)] px-4 py-2 text-[11px] font-semibold text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] disabled:opacity-60"
                   onClick={handleTestConnection}
-                  disabled={testConnectionAction.loading || !serverUrl.trim()}
-                >
-                  {testConnectionAction.loading ? "测试中..." : "连接测试"}
+                  disabled={testConnectionAction.loading || !serverUrl.trim()}>
+                  {testConnectionAction.loading ? '测试中...' : '连接测试'}
                 </button>
               </div>
               <p className="m-0 mt-2 text-[11px] opacity-70">
@@ -161,45 +162,44 @@ const LoginPage = () => {
             </div>
 
             <div className="mb-3">
-              <label className="block mb-2 text-[11px] font-semibold">
+              <label className="mb-2 block text-[11px] font-semibold">
                 登录账号
               </label>
               <input
-                className="w-full px-3 py-2 rounded-md border bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border-[var(--vscode-focus-border)] focus:outline-none focus:border-[var(--vscode-focus-border)] focus:ring-1 focus:ring-[var(--vscode-focus-border)]"
+                className="w-full rounded-md border border-[var(--vscode-focusBorder)] bg-[var(--vscode-input-background)] px-3 py-2 text-[var(--vscode-input-foreground)] focus:border-[var(--vscode-focusBorder)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
                 type="text"
                 placeholder="请输入账号"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={e => setUsername(e.target.value)}
                 disabled={!canEditLoginForm}
               />
             </div>
 
             <div className="mb-1">
-              <label className="block mb-2 text-[11px] font-semibold">
+              <label className="mb-2 block text-[11px] font-semibold">
                 登录密码
               </label>
               <input
-                className="w-full px-3 py-2 rounded-md border bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border-[var(--vscode-focus-border)] focus:outline-none focus:border-[var(--vscode-focus-border)] focus:ring-1 focus:ring-[var(--vscode-focus-border)]"
+                className="w-full rounded-md border border-[var(--vscode-focusBorder)] bg-[var(--vscode-input-background)] px-3 py-2 text-[var(--vscode-input-foreground)] focus:border-[var(--vscode-focusBorder)] focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder)]"
                 type="password"
                 placeholder="请输入密码"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 disabled={!canEditLoginForm}
               />
             </div>
 
             <div className="mt-4">
               <button
-                className="w-full py-2 text-[12px] font-bold rounded-md border border-transparent bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] disabled:opacity-60"
+                className="w-full rounded-md border border-transparent bg-[var(--vscode-button-background)] py-2 text-[12px] font-bold text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] disabled:opacity-60"
                 onClick={handleLogin}
                 disabled={
                   !canEditLoginForm ||
                   loginAction.loading ||
                   !username.trim() ||
                   !password.trim()
-                }
-              >
-                {loginAction.loading ? "登录中..." : "登录"}
+                }>
+                {loginAction.loading ? '登录中...' : '登录'}
               </button>
             </div>
           </div>

@@ -1,0 +1,21 @@
+# 构建输出
+dist/
+webview-dist/
+build/
+
+# 依赖
+node_modules/
+webview/node_modules/
+
+# 配置文件
+package-lock.json
+pnpm-lock.yaml
+
+# 其他
+*.min.js
+*.min.css
+*.map
+*.mjs
+.DS_Store
+.vscode/
+.idea/

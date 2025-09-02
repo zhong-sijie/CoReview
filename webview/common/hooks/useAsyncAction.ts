@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
-import { EnumMessageType } from "@shared/enums";
-import type { AsyncResult } from "@shared/types";
-import { postMessageWithCallback } from "../services/vscodeService";
+import { useCallback, useState } from 'react';
+import { EnumMessageType } from '@shared/enums';
+import type { AsyncResult } from '@shared/types';
+import { postMessageWithCallback } from '../services/vscodeService';
 
 /**
  * 简单的异步操作 hook
@@ -39,17 +39,17 @@ export function useAsyncAction() {
   const execute = useCallback(
     (
       type: EnumMessageType,
-      payload: Record<string, unknown> | undefined
+      payload: Record<string, unknown> | undefined,
     ): Promise<AsyncResult> => {
       setLoading(true);
-      return new Promise<AsyncResult>((resolve) => {
-        postMessageWithCallback(type, payload, (result) => {
+      return new Promise<AsyncResult>(resolve => {
+        postMessageWithCallback(type, payload, result => {
           setLoading(false);
           resolve(result);
         });
       });
     },
-    []
+    [],
   );
 
   return {

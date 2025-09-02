@@ -1,5 +1,3 @@
-import React from "react";
-
 /**
  * 主页底部组件
  *
@@ -8,7 +6,7 @@ import React from "react";
  */
 const HomeFooter = () => {
   return (
-    <footer className="px-4 py-2 border-t border-[var(--vscode-border)]" />
+    <footer className="border-t border-[var(--vscode-panel-border)] px-4 py-2" />
   );
 };
 

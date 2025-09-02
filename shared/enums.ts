@@ -14,33 +14,37 @@
 export enum EnumMessageType {
   // Webview → Extension 请求消息
   /** 获取当前鉴权状态，包括服务器地址、连接状态、登录状态等信息 */
-  GetAuthState = "get-auth-state",
+  GetAuthState = 'get-auth-state',
   /** 测试与后端服务的网络连通性，成功后允许用户进行登录操作 */
-  TestConnection = "test-connection",
+  TestConnection = 'test-connection',
   /** 使用用户名和密码进行身份验证，扩展端验证后返回最新鉴权状态 */
-  Login = "login",
+  Login = 'login',
   /** 获取应用初始化所需的数据，包括列配置、项目列表、初始评论等 */
-  GetInitialData = "get-initial-data",
-  /** 退出当前登录状态，清理扩展端存储的鉴权信息 */
-  Logout = "logout",
+  GetInitialData = 'get-initial-data',
   /** Webview 组件挂载完成并建立消息通道，扩展端可以开始发送初始数据 */
-  WebviewReady = "webview-ready",
+  WebviewReady = 'webview-ready',
   /** 将用户编辑的数据发送到扩展端进行持久化存储 */
-  UpdateEditData = "update-edit-data",
-  /** 提交编辑完成的评审数据到后端服务器进行保存 */
-  SubmitEditData = "submit-edit-data",
+  UpdateEditData = 'update-edit-data',
+  /** 提交评审数据到后端服务器进行保存 */
+  SubmitData = 'submit-data',
   /** 同步当前查询条件，包括选中的项目和筛选状态 */
-  UpdateQueryContext = "update-query-context",
+  UpdateQueryContext = 'update-query-context',
   /** 根据查询条件获取评论列表数据 */
-  QueryComments = "query-comments",
+  QueryComments = 'query-comments',
+  /** 保存评审意见，包含选中的文本和行号信息 */
+  SaveReviewComment = 'save-review-comment',
 
   // Extension → Webview 事件消息
   /** 鉴权状态发生变化时通知 Webview，包括登录、登出、连接状态变更 */
-  AuthState = "auth-state",
+  AuthState = 'auth-state',
   /** 表格初始化数据加载完成，包含列配置、项目列表、评论数据等完整信息 */
-  TableDataLoaded = "table-data-loaded",
+  TableDataLoaded = 'table-data-loaded',
   /** 评论查询操作完成，返回最新的评论列表数据 */
-  CommentsLoaded = "comments-loaded",
+  CommentsLoaded = 'comments-loaded',
+  /** Editorial 页面初始化数据，包含所有必要的数据 */
+  EditorialInit = 'editorial-init',
+  /** 新增评审意见已保存，通知侧边栏刷新数据 */
+  NewReviewCommentAdded = 'new-review-comment-added',
 }
 
 /**
@@ -51,13 +55,16 @@ export enum EnumMessageType {
  */
 export enum EnumCommands {
   /** 刷新审查列表数据，触发视图重新渲染或请求最新的服务器数据 */
-  REFRESH_REVIEWS = "coreview.refreshReviews",
+  REFRESH_REVIEWS = 'coreview.refreshReviews',
 
   /** 退出当前登录状态，清理所有鉴权信息并返回到登录页面 */
-  LOGOUT = "coreview.logout",
+  LOGOUT = 'coreview.logout',
 
   /** 在默认浏览器中打开服务器的 Web 管理页面 */
-  OPEN_WEB_PAGE = "coreview.openWebPage",
+  OPEN_WEB_PAGE = 'coreview.openWebPage',
+
+  /** 打开添加评审意见面板，用于快速添加代码评审意见 */
+  ADD_REVIEW_COMMENT = 'coreview.addReviewComment',
 }
 
 /**
@@ -68,7 +75,10 @@ export enum EnumCommands {
  */
 export enum EnumViews {
   /** 主视图标识，对应活动栏中显示的 CoReview 主界面 */
-  MAIN_VIEW = "coreview.mainView",
+  MAIN_VIEW = 'coreview.mainView',
+
+  /** 编辑视图标识，对应添加评审意见的独立面板 */
+  EDITORIAL_VIEW = 'coreview.editorialView',
 }
 
 /**
@@ -78,10 +88,10 @@ export enum EnumViews {
  */
 export enum EnumWebviewPath {
   /** 应用根路径，登录成功后进入的主页面 */
-  Root = "/",
+  Root = '/',
 
   /** 登录页面路径，未登录状态下自动跳转的目标页面 */
-  Login = "/login",
+  Login = '/login',
 }
 
 /**
@@ -91,33 +101,10 @@ export enum EnumWebviewPath {
  */
 export enum EnumHttpMethod {
   /** GET 请求方法 */
-  Get = "GET",
+  Get = 'GET',
 
   /** POST 请求方法 */
-  Post = "POST",
-}
-
-/**
- * 用户类型枚举
- *
- * 定义系统中用户的分类类型，由后端返回的用户类别编码。
- */
-export enum EnumUserType {
-  /** 未知或未设置的用户类型，通常作为默认值 */
-  Unknown = 0,
-
-  /** 普通员工用户类型，系统中最常见的用户类型 */
-  Staff = 1,
-}
-
-/**
- * 角色代码枚举
- *
- * 定义系统中用户的角色权限类型，由后端返回的角色编码。
- */
-export enum EnumRoleCode {
-  /** 管理员角色，拥有系统的最高权限 */
-  Admin = "admin",
+  Post = 'POST',
 }
 
 /**
@@ -126,14 +113,11 @@ export enum EnumRoleCode {
  * 定义评审列表页面中可用的筛选选项，用于过滤不同状态的评审记录。
  */
 export enum EnumReviewListFilter {
-  /** 显示所有评审记录，不进行任何筛选 */
-  All = "全部",
-
   /** 仅显示当前用户提交的评审记录 */
-  Mine = "我提交的",
+  Mine = '我提交的',
 
   /** 仅显示需要当前用户确认的评审记录 */
-  ToConfirm = "待我确认",
+  ToConfirm = '待我确认',
 }
 
 /**
@@ -143,16 +127,16 @@ export enum EnumReviewListFilter {
  */
 export enum EnumInputType {
   /** 单行文本输入框，适用于短文本输入 */
-  TEXT = "TEXT",
+  TEXT = 'TEXT',
 
   /** 下拉选择框，适用于从预定义选项中选择 */
-  COMBO_BOX = "COMBO_BOX",
+  COMBO_BOX = 'COMBO_BOX',
 
   /** 多行文本输入框，适用于长文本内容输入 */
-  TEXTAREA = "TEXTAREA",
+  TEXTAREA = 'TEXTAREA',
 
   /** 日期选择器，适用于日期类型的数据输入 */
-  DATE = "DATE",
+  DATE = 'DATE',
 }
 
 /**
