@@ -177,11 +177,31 @@ export class CommandManager {
   private async handleOpenWebPage(): Promise<void> {
     try {
       this.log.info('触发打开 Web 页面操作', 'CommandManager');
-      // 简化处理：暂时跳过服务器地址检查，直接提示用户
-      showError('请先在 CoReview 面板中配置服务器地址');
-    } catch {
+
+      // 检查服务器地址是否已配置
+      const state = this.stateService.getState();
+
+      if (!state.serverUrl) {
+        showError('请先在 CoReview 面板中配置服务器地址');
+        this.log.warn(
+          '打开 Web 页面被拒绝：未配置服务器地址',
+          'CommandManager',
+        );
+        return;
+      }
+
+      // 使用系统默认浏览器打开服务器URL
+      const url = vscode.Uri.parse(state.serverUrl);
+      await vscode.env.openExternal(url);
+
+      this.log.info('成功打开 Web 页面', 'CommandManager', {
+        serverUrl: state.serverUrl,
+      });
+    } catch (error) {
       showError('打开Web页面失败');
-      this.log.error('打开 Web 页面失败', 'CommandManager');
+      this.log.error('打开 Web 页面失败', 'CommandManager', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

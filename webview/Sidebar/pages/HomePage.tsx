@@ -297,6 +297,9 @@ const HomePage = () => {
       handleTableDataLoaded,
     );
 
+    // 在消息监听器注册完成后，主动请求初始数据
+    postMessage(EnumMessageType.GetInitialData, {});
+
     // 清理函数：组件卸载时移除消息处理器
     return () => {
       removeMessageHandler<TableDataLoadedPayload>(
