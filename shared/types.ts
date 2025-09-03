@@ -1,6 +1,7 @@
 import {
   EnumConfirmResult,
   type EnumInputType,
+  EnumLogLevel,
   type EnumReviewListFilter,
 } from './enums';
 
@@ -94,7 +95,7 @@ export interface ColumnConfig {
 /**
  * 用户详情信息接口
  *
- * 描述用户的完整信息，包括基本信息、部门、角色等。
+ * 描述用户的完整信息，包括基本信息和账号标识。
  */
 export interface UserDetail {
   /** 用户显示名称 */
@@ -199,6 +200,25 @@ export interface AsyncResult {
 }
 
 /**
+ * Webview 日志上报负载
+ *
+ * Webview 侧向扩展端上报日志所使用的统一负载结构。
+ * 便于扩展端统一记录并落盘。
+ */
+export interface WebviewLogPayload {
+  /** 日志级别（error/warn/info/debug） */
+  level: EnumLogLevel;
+  /** 日志消息文本 */
+  message: string;
+  /** 额外上下文数据（可序列化对象） */
+  data?: Record<string, any>;
+  /** 日志时间 */
+  timestamp: string;
+  /** 可选的业务上下文标识（如页面、组件名等） */
+  context?: string;
+}
+
+/**
  * 列配置响应接口
  *
  * 定义从后端获取列配置数据的响应结构。
@@ -284,7 +304,7 @@ export interface ReviewCommentValues {
   gitBranchName?: ReviewFieldValue<string>;
   /** 评审时间，记录创建或最新评审的时间 */
   reviewDate?: ReviewFieldValue<string>;
-  /** 确认结果，如 unconfirmed、accepted、rejected 等 */
+  /** 确认结果（枚举值），如 unconfirmed/2/3/4 等 */
   confirmResult?: ReviewFieldValue<EnumConfirmResult>;
   /** 实际确认人账号，showName 为中文姓名，未确认为 null */
   realConfirmer?: ReviewFieldValue<string | null>;
@@ -294,7 +314,7 @@ export interface ReviewCommentValues {
   lineRange?: ReviewFieldValue<string>;
   /** 项目 ID，支持数值或字符串类型，showName 为项目名称 */
   projectId?: ReviewFieldValue<string | number>;
-  /** Git 仓库名称，包含地址和命名空间信息 */
+  /** Git 仓库名称（地址或命名空间） */
   gitRepositoryName?: ReviewFieldValue<string>;
 }
 
@@ -374,7 +394,7 @@ export interface TestConnectionPayload extends BaseMessagePayload {
 export interface LoginPayload extends BaseMessagePayload {
   /** 用户的登录账号 */
   username: string;
-  /** 用户的登录密码 */
+  /** 用户的登录密码（明文，扩展端会进行 MD5） */
   password: string;
 }
 
@@ -424,7 +444,7 @@ export interface AuthStatePayload {
   connectionOk: boolean;
   /** 登录状态 */
   loggedIn: boolean;
-  /** 用户详情 */
+  /** 用户详情（用于 UI 展示，不包含敏感信息） */
   userDetail?: unknown | null;
 }
 
@@ -478,7 +498,7 @@ export interface NewReviewCommentAddedPayload {
 export interface OpenFilePayload extends BaseMessagePayload {
   /** 要打开的文件的绝对路径 */
   filePath: string;
-  /** 行号范围，如 "4 ~ 8" 或 "10 ～ 20; 30 ~ 50; 80 ~ 100" */
+  /** 行号范围，支持多个区间，如 "4 ~ 8; 10 ~ 20" */
   lineRange: string;
 }
 
@@ -498,4 +518,5 @@ export type AllMessagePayloads =
   | NewReviewCommentAddedPayload
   | AuthStatePayload
   | TableDataLoadedPayload
-  | CommentsLoadedPayload;
+  | CommentsLoadedPayload
+  | WebviewLogPayload;

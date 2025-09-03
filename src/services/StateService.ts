@@ -6,6 +6,8 @@ import {
   ReviewCommentItem,
   UserDetail,
 } from '../../shared/types';
+import { getArrayLength, getObjectKeyCount } from '../../shared/utils';
+import { LogService } from './LogService';
 
 /**
  * 应用状态接口
@@ -52,6 +54,9 @@ export class StateService {
 
   /** VS Code 全局状态存储对象，用于持久化数据 */
   private memento: vscode.Memento | null = null;
+
+  /** 日志服务实例 */
+  private log: LogService = LogService.getInstance();
 
   /**
    * 全局存储键名
@@ -132,6 +137,15 @@ export class StateService {
   public initialize(context: vscode.ExtensionContext): void {
     this.memento = context.globalState;
     this.loadStateFromStorage();
+    this.log.info('状态服务初始化完成', 'StateService', {
+      loggedIn: this.state.loggedIn,
+      connectionOk: this.state.connectionOk,
+      hasServerUrl: Boolean(this.state.serverUrl),
+      hasUserDetail: Boolean(this.state.userDetail),
+      editDataCount: getObjectKeyCount(this.state.editData),
+      addDataCount: getObjectKeyCount(this.state.addData),
+      columnConfigCount: getArrayLength(this.state.columnConfig),
+    });
   }
 
   /**
@@ -206,6 +220,16 @@ export class StateService {
     if (savedAddData) {
       this.state.addData = savedAddData;
     }
+
+    this.log.debug('已从存储加载状态', 'StateService', {
+      loggedIn: this.state.loggedIn,
+      connectionOk: this.state.connectionOk,
+      hasServerUrl: Boolean(this.state.serverUrl),
+      hasUserDetail: Boolean(this.state.userDetail),
+      editDataCount: getObjectKeyCount(this.state.editData),
+      addDataCount: getObjectKeyCount(this.state.addData),
+      columnConfigCount: getArrayLength(this.state.columnConfig),
+    });
   }
 
   /**
@@ -234,6 +258,7 @@ export class StateService {
       this.memento.update(StateService.STORAGE_KEYS.BASE_URL, url);
     }
     this.notifyStateChange();
+    this.log.info('更新服务器地址', 'StateService', { serverUrl: url });
   }
 
   /**
@@ -247,6 +272,7 @@ export class StateService {
   public setConnectionOk(ok: boolean): void {
     this.state.connectionOk = ok;
     this.notifyStateChange();
+    this.log.info('更新连接状态', 'StateService', { connectionOk: ok });
   }
 
   /**
@@ -260,6 +286,7 @@ export class StateService {
   public setLoggedIn(loggedIn: boolean): void {
     this.state.loggedIn = loggedIn;
     this.notifyStateChange();
+    this.log.info('更新登录状态', 'StateService', { loggedIn });
   }
 
   /**
@@ -276,6 +303,7 @@ export class StateService {
       this.memento.update(StateService.STORAGE_KEYS.USER_DETAIL, userDetail);
     }
     this.notifyStateChange();
+    this.log.info('更新用户详情', 'StateService', { userDetail });
   }
 
   /**
@@ -415,6 +443,9 @@ export class StateService {
       this.memento.update(StateService.STORAGE_KEYS.EDIT_DATA, editData);
     }
     this.notifyStateChange();
+    this.log.info('更新编辑数据', 'StateService', {
+      editDataCount: getObjectKeyCount(editData),
+    });
   }
 
   /**
@@ -455,6 +486,11 @@ export class StateService {
       );
     }
     this.notifyStateChange();
+    this.log.info('更新查询上下文', 'StateService', {
+      hasQueryContext: Boolean(queryContext),
+      projectId: queryContext?.projectId,
+      filterType: queryContext?.filterType,
+    });
   }
 
   /**
@@ -509,6 +545,9 @@ export class StateService {
       );
     }
     this.notifyStateChange();
+    this.log.info('更新列配置', 'StateService', {
+      columnConfigCount: getArrayLength(columnConfig),
+    });
   }
 
   /**
@@ -544,6 +583,9 @@ export class StateService {
       this.memento.update(StateService.STORAGE_KEYS.ADD_DATA, addData);
     }
     this.notifyStateChange();
+    this.log.info('更新新增数据', 'StateService', {
+      addDataCount: getObjectKeyCount(addData),
+    });
   }
 
   /**
@@ -612,5 +654,9 @@ export class StateService {
     }
 
     this.notifyStateChange();
+    this.log.info('清理新增数据', 'StateService', {
+      id,
+      remainingCount: getObjectKeyCount(this.state.addData),
+    });
   }
 }

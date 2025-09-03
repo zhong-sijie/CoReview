@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import { EnumHttpMethod } from '../../shared/enums';
 import type { CheckAuthResponse, LoginRequest } from '../../shared/types';
 import { requestApi } from '../utils/request';
+import { LogService } from './LogService';
 import { StateService } from './StateService';
 
 /**
@@ -24,6 +25,9 @@ export class AuthService {
   /** 状态服务实例，用于管理登录状态和用户信息 */
   private stateService: StateService;
 
+  /** 日志服务实例 */
+  private log: LogService;
+
   /**
    * 私有构造函数
    *
@@ -31,6 +35,7 @@ export class AuthService {
    */
   private constructor() {
     this.stateService = StateService.getInstance();
+    this.log = LogService.getInstance();
   }
 
   /**
@@ -64,6 +69,9 @@ export class AuthService {
     }
 
     try {
+      this.log.debug('开始连接测试', 'AuthService', {
+        serverUrl: normalizedServerUrl,
+      });
       await requestApi({
         url: `${normalizedServerUrl}/client/system/checkConnection`,
         method: EnumHttpMethod.Get,
@@ -75,8 +83,14 @@ export class AuthService {
       // 连接成功: 通过 StateService 更新服务器地址
       this.stateService.setServerUrl(normalizedServerUrl);
       this.stateService.setConnectionOk(true);
+      this.log.info('连接测试成功', 'AuthService', {
+        serverUrl: normalizedServerUrl,
+      });
       return Promise.resolve(true);
     } catch (e) {
+      this.log.error('连接测试失败', 'AuthService', {
+        error: e instanceof Error ? e.message : String(e),
+      });
       return Promise.reject(e);
     }
   }
@@ -116,6 +130,9 @@ export class AuthService {
     });
 
     if (!data?.pass) {
+      this.log.warn('登录失败：账号或密码错误', 'AuthService', {
+        username: normalizedUsername,
+      });
       throw new Error('登录失败: 账号或密码错误');
     }
 
@@ -124,6 +141,11 @@ export class AuthService {
     this.stateService.setUserDetail(data.userInfo);
     this.stateService.setLoggedIn(true);
     this.stateService.setConnectionOk(true);
+
+    this.log.info('登录成功', 'AuthService', {
+      username: normalizedUsername,
+      userInfo: data.userInfo,
+    });
 
     return true;
   }
@@ -139,6 +161,7 @@ export class AuthService {
    * 3. 设置连接状态为失败
    */
   public async loadLogout(): Promise<void> {
+    this.log.debug('开始登出', 'AuthService');
     // 通过 StateService 清除登录凭据
     await this.stateService.clearCredentials();
 
@@ -146,5 +169,6 @@ export class AuthService {
     this.stateService.setLoggedIn(false);
     this.stateService.setUserDetail(null);
     this.stateService.setConnectionOk(false);
+    this.log.info('登出完成', 'AuthService');
   }
 }

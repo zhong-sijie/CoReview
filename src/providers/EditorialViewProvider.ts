@@ -5,6 +5,7 @@ import {
   UserDetail,
   WebViewMessage,
 } from '../../shared/types';
+import { LogService } from '../services/LogService';
 import { StateService } from '../services/StateService';
 import { WebViewService } from '../services/WebViewService';
 import { WebViewServiceFactory } from '../services/WebViewServiceFactory';
@@ -36,6 +37,9 @@ export class EditorialViewProvider {
 
   /** 用于通知其他视图的回调函数，当有新评审意见时调用 */
   private onNewCommentAdded?: () => void;
+
+  /** 日志服务实例 */
+  private log: LogService;
 
   /** 当前选中的文本信息，包含文本内容、行号、文件路径等 */
   private selectedTextInfo?: {
@@ -71,7 +75,9 @@ export class EditorialViewProvider {
     this.webViewService = WebViewServiceFactory.createService('editorial');
     this.stateService = StateService.getInstance();
     this.onNewCommentAdded = onNewCommentAdded;
+    this.log = LogService.getInstance();
     this.setupMessageHandlers();
+    this.log.info('初始化编辑视图提供者', 'EditorialViewProvider');
   }
 
   /**
@@ -92,8 +98,13 @@ export class EditorialViewProvider {
    * @returns 处理后的文本内容
    */
   private computeProcessedText(originalSelectedText: string): string {
+    this.log.debug('开始处理多段选中文本', 'EditorialViewProvider');
     const activeEditor = vscode.window.activeTextEditor;
     if (!activeEditor) {
+      this.log.warn(
+        '处理多段文本被忽略：无活动编辑器',
+        'EditorialViewProvider',
+      );
       return originalSelectedText;
     }
 
@@ -114,11 +125,20 @@ export class EditorialViewProvider {
     }
 
     if (textSegments.length === 0) {
+      this.log.warn(
+        '处理多段文本结果为空，将返回原始文本',
+        'EditorialViewProvider',
+      );
       return originalSelectedText;
     }
 
     textSegments.sort((a, b) => a.startLine - b.startLine);
-    return textSegments.map(s => s.text).join('\n\n');
+    const result = textSegments.map(s => s.text).join('\n\n');
+    this.log.debug('处理多段选中文本完成', 'EditorialViewProvider', {
+      length: result.length,
+      segments: textSegments.length,
+    });
+    return result;
   }
 
   /**
@@ -165,10 +185,20 @@ export class EditorialViewProvider {
    */
   private async readFileSnapshot(absolutePath: string): Promise<string> {
     try {
+      this.log.debug('开始读取文件快照', 'EditorialViewProvider', {
+        absolutePath,
+      });
       const uri = vscode.Uri.file(absolutePath);
       const document = await vscode.workspace.openTextDocument(uri);
-      return document.getText();
+      const content = document.getText();
+      this.log.debug('读取文件快照完成', 'EditorialViewProvider', {
+        length: content.length,
+      });
+      return content;
     } catch {
+      this.log.warn('读取文件快照失败，返回空字符串', 'EditorialViewProvider', {
+        absolutePath,
+      });
       return '';
     }
   }
@@ -208,6 +238,7 @@ export class EditorialViewProvider {
     const state = this.stateService.getState();
     if (!state.loggedIn) {
       showError('请先登录后再添加评审意见');
+      this.log.warn('创建编辑面板被拒绝：未登录', 'EditorialViewProvider');
       return;
     }
 
@@ -227,9 +258,15 @@ export class EditorialViewProvider {
       gitInfo,
       userDetail,
     };
+    this.log.info('保存选中文本信息', 'EditorialViewProvider', {
+      filePath,
+      lineNumber,
+      text: processedText,
+    });
 
     // 如果面板已存在，显示并更新内容
     if (this._panel) {
+      this.log.info('复用已存在的编辑面板', 'EditorialViewProvider');
       this._panel.reveal();
       return;
     }
@@ -245,14 +282,17 @@ export class EditorialViewProvider {
         localResourceRoots: [this._extensionUri],
       },
     );
+    this.log.info('创建编辑面板成功', 'EditorialViewProvider');
 
     // 设置面板内容
     this._panel.webview.html = this.getHtmlForWebview(this._panel.webview);
+    this.log.debug('注入编辑页面 HTML 完成', 'EditorialViewProvider');
 
     // 面板关闭时清理
     this._panel.onDidDispose(() => {
       this._panel = undefined;
       this.selectedTextInfo = undefined;
+      this.log.info('编辑面板已关闭并完成清理', 'EditorialViewProvider');
     });
   }
 
@@ -265,10 +305,15 @@ export class EditorialViewProvider {
    * @returns 完整的 HTML 字符串
    */
   private getHtmlForWebview(webview: vscode.Webview): string {
-    return this.webViewService.getWebViewContent(webview, this._extensionUri, {
-      app: 'Editorial',
-      title: '添加评审意见',
-    });
+    const html = this.webViewService.getWebViewContent(
+      webview,
+      this._extensionUri,
+      {
+        app: 'Editorial',
+        title: '添加评审意见',
+      },
+    );
+    return html;
   }
 
   /**
@@ -278,10 +323,12 @@ export class EditorialViewProvider {
    * 主要处理 Webview 准备就绪和保存评审意见的消息。
    */
   private setupMessageHandlers(): void {
+    this.log.info('注册编辑视图消息处理器', 'EditorialViewProvider');
     // Webview 准备就绪
     this.webViewService.registerMessageHandler(
       EnumMessageType.WebviewReady,
       () => {
+        this.log.debug('收到 WebviewReady 事件', 'EditorialViewProvider');
         this.sendEditorialInitData();
       },
     );
@@ -291,6 +338,7 @@ export class EditorialViewProvider {
       EnumMessageType.SaveReviewComment,
       async (message: WebViewMessage<SaveReviewCommentPayload>) => {
         try {
+          this.log.info('收到保存评审意见请求', 'EditorialViewProvider');
           const { comment, callbackId } = message.payload ?? {};
 
           // 1. 在调用处处理顺序：新建在前，已有在后
@@ -310,6 +358,9 @@ export class EditorialViewProvider {
           this._panel?.dispose();
 
           showInfo('评审意见保存成功');
+          this.log.info('保存评审意见成功', 'EditorialViewProvider', {
+            comment,
+          });
 
           // 4. 通知侧边栏有新的评审意见被添加
           if (this.onNewCommentAdded) {
@@ -319,6 +370,9 @@ export class EditorialViewProvider {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
           showError(`保存失败：${errorMessage}`);
+          this.log.error('保存评审意见失败', 'EditorialViewProvider', {
+            error: errorMessage,
+          });
 
           if (this._panel) {
             this._panel.webview.postMessage({
@@ -367,6 +421,11 @@ export class EditorialViewProvider {
         userDetail: this.selectedTextInfo.userDetail,
         columns,
       },
+    });
+    this.log.debug('下发 Editorial 初始化数据', 'EditorialViewProvider', {
+      authState,
+      selectedTextInfo: this.selectedTextInfo,
+      columns,
     });
   }
 }

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ExtensionMessage, WebViewMessage } from '../../shared/types';
 import { createUniqueId } from '../../shared/utils';
+import { LogService } from './LogService';
 
 /**
  * WebView 服务
@@ -26,6 +27,9 @@ export class WebViewService {
 
   /** Provider 标识符 */
   private providerId: string;
+
+  /** 日志服务实例 */
+  private log: LogService = LogService.getInstance();
 
   /**
    * 构造函数
@@ -67,6 +71,12 @@ export class WebViewService {
       options,
     );
 
+    this.log.info('创建 Webview 面板', 'WebViewService', {
+      providerId: this.providerId,
+      viewType,
+      title,
+    });
+
     // 设置消息监听器
     panel.webview.onDidReceiveMessage(
       (message: WebViewMessage) => {
@@ -79,6 +89,10 @@ export class WebViewService {
     // 面板关闭时清理
     panel.onDidDispose(() => {
       this.webviewPanels.delete(viewType);
+      this.log.info('Webview 面板已释放', 'WebViewService', {
+        providerId: this.providerId,
+        viewType,
+      });
     });
 
     this.webviewPanels.set(viewType, panel);
@@ -107,8 +121,18 @@ export class WebViewService {
     const panel = this.webviewPanels.get(viewType);
     if (panel) {
       panel.webview.postMessage(message);
+      this.log.debug('向 Webview 发送消息', 'WebViewService', {
+        providerId: this.providerId,
+        viewType,
+        messageType: message.type,
+      });
       return true;
     }
+    this.log.warn('发送消息失败：目标 Webview 不存在', 'WebViewService', {
+      providerId: this.providerId,
+      viewType,
+      messageType: message.type,
+    });
     return false;
   }
 
@@ -129,6 +153,10 @@ export class WebViewService {
       type,
       handler as (message: WebViewMessage<unknown>) => void,
     );
+    this.log.info('注册 Webview 消息处理器', 'WebViewService', {
+      providerId: this.providerId,
+      type,
+    });
   }
 
   /**
@@ -141,7 +169,18 @@ export class WebViewService {
    */
   private handleWebViewMessage(message: WebViewMessage): void {
     const handler = this.messageHandlers.get(message.type);
-    handler?.(message);
+    if (handler) {
+      this.log.debug('收到 Webview 消息', 'WebViewService', {
+        providerId: this.providerId,
+        type: message.type,
+      });
+      handler(message);
+    } else {
+      this.log.warn('收到未知类型的 Webview 消息', 'WebViewService', {
+        providerId: this.providerId,
+        type: message.type,
+      });
+    }
   }
 
   /**
@@ -252,6 +291,8 @@ export class WebViewService {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     window.acquireVsCodeApi = () => vscode;
+    // 暴露当前应用类型给 Webview 代码（Sidebar / Editorial）
+    window.__COREVIEW_APP = '${app}';
   </script>
   <script type="module" src="${appScriptUri}" nonce="${nonce}"></script>
   ${(options?.additionalScripts || [])

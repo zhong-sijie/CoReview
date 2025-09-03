@@ -2,11 +2,13 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   EnumConfirmResult,
+  EnumLogLevel,
   EnumMessageType,
   EnumViews,
 } from '../../shared/enums';
 import {
   ColumnConfig,
+  ExtensionMessage,
   LoginPayload,
   OpenFilePayload,
   ProjectOptionResponse,
@@ -17,8 +19,10 @@ import {
   UpdateEditDataPayload,
   UpdateQueryContextPayload,
   WebViewMessage,
+  WebviewLogPayload,
 } from '../../shared/types';
 import { AuthService } from '../services/AuthService';
+import { LogService } from '../services/LogService';
 import { StateService } from '../services/StateService';
 import { TableService } from '../services/TableService';
 import { WebViewService } from '../services/WebViewService';
@@ -79,6 +83,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   /** 表格服务实例，负责表格数据操作 */
   private tableService: TableService;
 
+  /** 日志服务实例 */
+  private log: LogService;
+
   /** 扩展加载阶段预取并缓存的初始表格数据 */
   private cachedInitialData?: {
     columns?: ColumnConfig[];
@@ -138,12 +145,14 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     this.authService = AuthService.getInstance();
     this.stateService = StateService.getInstance();
     this.tableService = TableService.getInstance();
+    this.log = LogService.getInstance();
     this.setupMessageHandlers();
     // 扩展加载时预取初始化数据（不依赖页面主动请求）
     void this.prefetchInitialDataAndApplyDecorations();
 
     // 监听编辑器变化，重新应用装饰
     this.setupEditorDecorationListeners();
+    this.log.info('初始化评审视图提供者', 'ReviewViewProvider');
   }
 
   /**
@@ -153,6 +162,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     if (this.lastDecorationItems.length === 0) {
       return;
     }
+    this.log.debug('应用上次缓存的装饰项', 'ReviewViewProvider', {
+      count: this.lastDecorationItems.length,
+    });
     this.updateUnderlineDecorations(
       this.lastDecorationItems as DecorationItem[],
     );
@@ -163,9 +175,11 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    */
   private setupEditorDecorationListeners(): void {
     vscode.window.onDidChangeActiveTextEditor(() => {
+      this.log.debug('活动编辑器变更，重放装饰', 'ReviewViewProvider');
       this.applyLastDecorationsIfAny();
     });
     vscode.window.onDidChangeVisibleTextEditors(() => {
+      this.log.debug('可见编辑器集合变更，重放装饰', 'ReviewViewProvider');
       this.applyLastDecorationsIfAny();
     });
   }
@@ -180,16 +194,21 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   private async prefetchInitialDataAndApplyDecorations(): Promise<void> {
     try {
       const state = this.stateService.getState();
-      if (!state.loggedIn) {
+      // 仅在登录成功且网络连通且存在 serverUrl 时预取
+      if (!state.loggedIn || !state.connectionOk || !state.serverUrl) {
         return;
       }
+      this.log.info('预取初始数据并应用装饰', 'ReviewViewProvider');
       const { columns, projects, comments, queryContext } =
         await this.tableService.loadGetInitialTable();
       this.cachedInitialData = { columns, projects, comments, queryContext };
       const items = this.buildDecorationItemsIncludingAddData(comments);
       this.updateUnderlineDecorations(items);
-    } catch {
-      // ignore
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      this.log.warn('预取初始数据失败', 'ReviewViewProvider', {
+        error: errorMessage,
+      });
     }
   }
 
@@ -219,10 +238,14 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
 
     // 2) 注入前端页面 HTML（通常为打包后的 index.html + 资源）
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+    this.log.debug('注入主视图 HTML 完成', 'ReviewViewProvider');
 
     // 3) 设置消息监听器: 接收 Webview 发来的 postMessage 并分发至已注册的处理器
     webviewView.webview.onDidReceiveMessage(
       message => {
+        this.log.debug('收到 Webview 消息', 'ReviewViewProvider', {
+          type: message?.type,
+        });
         this.handleWebViewMessage(message);
       },
       undefined,
@@ -261,10 +284,15 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    * @returns 完整的 HTML 字符串
    */
   private getHtmlForWebview(webview: vscode.Webview): string {
-    return this.webViewService.getWebViewContent(webview, this._extensionUri, {
-      app: 'Sidebar',
-      title: 'CoReview Sidebar',
-    });
+    const html = this.webViewService.getWebViewContent(
+      webview,
+      this._extensionUri,
+      {
+        app: 'Sidebar',
+        title: 'CoReview Sidebar',
+      },
+    );
+    return html;
   }
 
   /**
@@ -274,11 +302,40 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    * 包括鉴权、数据获取、状态更新等各种业务操作。
    */
   private setupMessageHandlers(): void {
+    this.log.debug('注册主视图消息处理器', 'ReviewViewProvider');
     // Webview 挂载完成后再发送初始数据
     this.webViewService.registerMessageHandler(
       EnumMessageType.WebviewReady,
       () => {
+        this.log.debug('收到 WebviewReady 事件', 'ReviewViewProvider');
         this.sendInitialData();
+      },
+    );
+
+    // Webview 日志上报
+    this.webViewService.registerMessageHandler(
+      EnumMessageType.WebviewLogReport,
+      (message: ExtensionMessage<WebviewLogPayload>) => {
+        try {
+          const payload = message.payload;
+          const ctx = payload?.context || 'webview';
+          // 仅在 error/warn 时保留，避免与 WebViewService 的通用消息日志重复
+          if (payload?.level === EnumLogLevel.ERROR) {
+            this.log.error(
+              payload.message || '前端错误日志',
+              ctx,
+              payload?.data,
+            );
+          } else if (payload?.level === EnumLogLevel.WARN) {
+            this.log.warn(
+              payload.message || '前端警告日志',
+              ctx,
+              payload?.data,
+            );
+          }
+        } catch {
+          // ignore
+        }
       },
     );
 
@@ -299,6 +356,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         const { serverUrl } = message.payload ?? {}; // Webview 传入的服务器地址（字符串）
 
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('开始测试连接', 'ReviewViewProvider', { serverUrl });
           // 1) 调用鉴权服务进行连接测试（内部会校验 URL、请求 /client/system/checkConnection）
           await this.authService.loadTestConnection(serverUrl);
           // 2) 连接成功: 允许编辑账号密码，并重置登录态
@@ -307,6 +365,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
           // 3) 将最新鉴权状态回传给 Webview（包含 serverUrl/connectionOk/loggedIn 等）
           this.sendAuthState();
           showInfo('连接测试成功');
+          this.log.info('连接测试成功', 'ReviewViewProvider');
         });
       },
     );
@@ -318,6 +377,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         const { username, password } = message.payload ?? {}; // Webview 传入的用户名/明文密码
 
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('开始登录', 'ReviewViewProvider', { username });
           // 1) 发起登录: 内部会对密码做 MD5，并调用 /server/login/doLogin
           await this.authService.loadLogin(username, password);
           // 2) 登录成功: AuthService.loadLogin 内部已设置 loggedIn=true，此处仅推送最新鉴权状态
@@ -336,6 +396,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
           this.sendColumnConfig(columns, projects, comments, queryContext);
 
           showInfo('登录成功');
+          this.log.info('登录成功', 'ReviewViewProvider');
         });
       },
     );
@@ -345,6 +406,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       EnumMessageType.GetInitialData,
       async message => {
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('请求初始数据', 'ReviewViewProvider');
           // 1) 调用表格服务并行获取列配置与项目
           const { columns, projects, comments, queryContext } =
             await this.tableService.loadGetInitialTable();
@@ -361,6 +423,10 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         const { editData, addData } = message.payload ?? {}; // Webview 传入的完整编辑数据和新增数据
 
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('保存编辑与新增数据', 'ReviewViewProvider', {
+            editData,
+            addData,
+          });
           // 调用表格服务保存编辑数据和新增数据
           await this.tableService.saveData(editData, addData);
           // 保存后立即重建装饰
@@ -375,14 +441,22 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       async (message: WebViewMessage<SubmitDataPayload>) => {
         const { submitData } = message.payload ?? {};
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('提交数据', 'ReviewViewProvider', {
+            items: submitData,
+          });
           // 1) 调用提交接口
           const result = await this.tableService.loadCommitComments({
             comments: submitData || [],
           });
           if (result.success) {
             showInfo('提交完成');
+            this.log.info('提交完成', 'ReviewViewProvider');
           } else {
-            showError(`提交失败：${result.errDesc ?? '未知错误'}`);
+            const errorMessage = result.errDesc ?? '未知错误';
+            showError(`提交失败：${errorMessage}`);
+            this.log.warn('提交失败', 'ReviewViewProvider', {
+              error: errorMessage,
+            });
           }
           // 2) 提交成功后按当前上下文重新查询
           const { comments } = await this.tableService.loadQueryComments({
@@ -409,6 +483,10 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       async (message: WebViewMessage<UpdateQueryContextPayload>) => {
         await this.handleAsyncMessage(message, async () => {
           const { projectId, type } = message.payload ?? {};
+          this.log.debug('更新查询上下文', 'ReviewViewProvider', {
+            projectId,
+            type,
+          });
           this.stateService.setQueryContext({
             projectId: projectId,
             filterType: type,
@@ -423,6 +501,10 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       async (message: WebViewMessage<UpdateQueryContextPayload>) => {
         const { projectId, type } = message.payload ?? {};
         await this.handleAsyncMessage(message, async () => {
+          this.log.debug('按条件查询评论', 'ReviewViewProvider', {
+            projectId,
+            type,
+          });
           const { comments } = await this.tableService.loadQueryComments({
             projectId,
             type,
@@ -444,6 +526,10 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         const { filePath, lineRange } = message.payload ?? {};
 
         try {
+          this.log.debug('打开文件请求', 'ReviewViewProvider', {
+            filePath,
+            lineRange,
+          });
           // 打开文件
           const document = await this.openFileWithFallback(filePath);
 
@@ -455,10 +541,14 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
 
           // 跳转到指定行号
           await this.jumpToLineRange(editor, lineRange);
+          this.log.info('打开文件并定位完成', 'ReviewViewProvider');
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
           showError(`打开文件失败: ${errorMessage}`);
+          this.log.error('打开文件失败', 'ReviewViewProvider', {
+            error: errorMessage,
+          });
         }
       },
     );

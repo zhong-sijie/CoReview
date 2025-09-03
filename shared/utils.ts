@@ -83,3 +83,23 @@ export const resetIdGenerator = (): void => {
   sequenceCounter = 0;
   lastTimestamp = 0;
 };
+
+/**
+ * 获取对象键数量
+ * @param obj 要计算键数量的对象
+ * @returns 键的数量，如果对象为空或null则返回0
+ */
+export function getObjectKeyCount(
+  obj: Record<string, any> | null | undefined,
+): number {
+  return obj ? Object.keys(obj).length : 0;
+}
+
+/**
+ * 获取数组长度
+ * @param arr 要计算长度的数组
+ * @returns 数组长度，如果数组为空或null则返回0
+ */
+export function getArrayLength(arr: any[] | null | undefined): number {
+  return arr ? arr.length : 0;
+}

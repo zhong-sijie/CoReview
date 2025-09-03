@@ -8,7 +8,9 @@ import {
   type QueryCommentsResponse,
   type ReviewCommentItem,
 } from '../../shared/types';
+import { getArrayLength, getObjectKeyCount } from '../../shared/utils';
 import { requestApi } from '../utils/request';
+import { LogService } from './LogService';
 import { StateService } from './StateService';
 
 /**
@@ -38,6 +40,9 @@ export interface CommentQueryParams {
 export class TableService {
   /** 单例实例，确保全局只有一个表格服务 */
   private static instance: TableService;
+
+  /** 日志服务实例 */
+  private log: LogService = LogService.getInstance();
 
   /**
    * 私有构造函数
@@ -86,6 +91,7 @@ export class TableService {
 
     // 缓存不存在，从后端获取
     try {
+      this.log.debug('拉取列配置', 'TableService');
       const response = await requestApi<ColumnConfigResponse>({
         url: '/client/system/pullColumnDefines',
         method: EnumHttpMethod.Get,
@@ -98,8 +104,12 @@ export class TableService {
         stateService.setColumnConfig(columns);
       }
 
+      this.log.debug('拉取列配置完成', 'TableService', {
+        columnsCount: getArrayLength(columns),
+      });
       return columns;
     } catch {
+      this.log.warn('拉取列配置失败', 'TableService');
       return [];
     }
   }
@@ -118,15 +128,21 @@ export class TableService {
    */
   public async loadGetMyProjects(): Promise<ProjectOptionResponse[]> {
     try {
+      this.log.debug('拉取项目列表', 'TableService');
       const data = await requestApi<ProjectOptionResponse[]>({
         url: '/client/project/getMyProjects',
         method: EnumHttpMethod.Get,
       });
-      return data.map((p: ProjectOptionResponse) => ({
+      const projects = data.map((p: ProjectOptionResponse) => ({
         projectId: p.projectId,
         projectName: p.projectName,
       }));
+      this.log.debug('拉取项目列表完成', 'TableService', {
+        projectsCount: getArrayLength(projects),
+      });
+      return projects;
     } catch {
+      this.log.warn('拉取项目列表失败', 'TableService');
       return [];
     }
   }
@@ -151,6 +167,13 @@ export class TableService {
     const stateService = StateService.getInstance();
     const queryContext = stateService.getQueryContext();
 
+    this.log.debug('获取初始表格数据', 'TableService', {
+      serverUrl: stateService.getServerUrl(),
+      connectionOk: stateService.getState().connectionOk,
+      loggedIn: stateService.getState().loggedIn,
+      queryContext,
+    });
+
     // 先获取列配置和项目列表（列配置会自动缓存）
     const [columns, projects] = await Promise.all([
       this.loadGetColumnConfig(),
@@ -171,11 +194,25 @@ export class TableService {
     }
 
     // 使用最终的查询上下文获取评论数据
-    const commentsResp = await this.loadQueryComments({
-      projectId: finalQueryContext?.projectId,
-      type: finalQueryContext?.filterType,
-    });
+    let commentsResp: QueryCommentsResponse = { comments: [] } as any;
+    try {
+      commentsResp = await this.loadQueryComments({
+        projectId: finalQueryContext?.projectId,
+        type: finalQueryContext?.filterType,
+      });
+    } catch (e) {
+      this.log.warn('获取评论列表失败', 'TableService', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
+    }
 
+    this.log.debug('获取初始表格数据完成', 'TableService', {
+      columnsCount: getArrayLength(columns),
+      projectsCount: getArrayLength(projects),
+      commentsCount: getArrayLength(commentsResp.comments),
+      queryContext: finalQueryContext,
+    });
     return {
       columns,
       projects,
@@ -201,13 +238,18 @@ export class TableService {
   public async loadQueryComments(
     params: CommentQueryParams,
   ): Promise<QueryCommentsResponse> {
+    this.log.debug('按条件查询评论', 'TableService', { params });
     const data = await requestApi<QueryCommentsResponse>({
       url: '/client/comment/queryList',
       method: EnumHttpMethod.Post,
       data: params,
     });
     // 统一在此处进行倒序，调用方拿到的即为倒序后的列表
-    return { ...data, comments: data.comments.toReversed() };
+    const resp = { ...data, comments: data.comments.toReversed() };
+    this.log.debug('查询评论完成', 'TableService', {
+      commentsCount: getArrayLength(resp.comments),
+    });
+    return resp;
   }
 
   /**
@@ -226,12 +268,19 @@ export class TableService {
   public async loadCommitComments(payload: {
     comments: ReviewCommentItem[];
   }): Promise<CommitCommentsResponse> {
+    this.log.debug('提交评审意见', 'TableService', {
+      count: getArrayLength(payload?.comments),
+    });
     const data = await requestApi<CommitCommentsResponse>({
       url: '/client/comment/commitComments',
       method: EnumHttpMethod.Post,
       data: payload,
     });
     // 后端直接返回最终结构
+    this.log.info('提交评审意见完成', 'TableService', {
+      success: data?.success,
+      error: data?.errDesc,
+    });
     return data;
   }
 
@@ -269,8 +318,12 @@ export class TableService {
       } else {
         stateService.clearAddData();
       }
-    } catch {
-      // ignore
+      this.log.debug('持久化保存编辑与新增数据', 'TableService', {
+        editCount: getObjectKeyCount(editDataObject),
+        addCount: getObjectKeyCount(addDataObject),
+      });
+    } catch (e) {
+      this.log.warn('保存数据时异常', 'TableService', { error: e });
     }
   }
 

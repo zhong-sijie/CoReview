@@ -1,4 +1,4 @@
-import { EnumMessageType } from '@shared/enums';
+import { EnumLogLevel, EnumMessageType } from '@shared/enums';
 import type {
   AllMessagePayloads,
   AsyncResult,
@@ -61,11 +61,13 @@ export function initializeVSCodeService(): void {
   // 获取VSCode API
   if (typeof window !== 'undefined' && window.acquireVsCodeApi) {
     vscode = window.acquireVsCodeApi();
+    reportLog(EnumLogLevel.INFO, 'VSCode API 初始化完成');
   }
 
   // 监听来自扩展的消息
   window.addEventListener('message', (event: MessageEvent) => {
     const message = event.data as ExtensionMessage;
+    reportLog(EnumLogLevel.DEBUG, '收到扩展消息', { type: message?.type });
     handleMessage(message);
   });
 }
@@ -130,7 +132,40 @@ export function postMessage(
   payload: AllMessagePayloads,
 ): void {
   if (vscode) {
+    // 避免对日志上报自身再次打点，防止循环
+    if (type !== EnumMessageType.WebviewLogReport) {
+      reportLog(EnumLogLevel.DEBUG, type, { ...payload });
+    }
+
     vscode.postMessage({ type, payload });
+  }
+}
+
+/**
+ * 向扩展端上报日志
+ *
+ * 使用统一的消息类型 WebviewLogReport，将前端日志转发到扩展端落盘。
+ * @param level 日志级别：'info' | 'warn' | 'error' | 'debug'
+ * @param message 简要描述
+ * @param data 附加数据
+ */
+export function reportLog(
+  level: EnumLogLevel,
+  message: string,
+  data?: Record<string, any>,
+): void {
+  if (vscode) {
+    const app = ((window as any)?.__COREVIEW_APP as string) || '';
+
+    const { context = '', ...rest } = data || {};
+
+    postMessage(EnumMessageType.WebviewLogReport, {
+      level,
+      message: `[webview ${app}] ${message}`,
+      data: rest,
+      timestamp: new Date().toISOString(),
+      context,
+    });
   }
 }
 
@@ -166,9 +201,9 @@ export function postMessageWithCallback(
     // 发送消息，包含回调ID
     const basePayload = payload || {};
 
-    vscode.postMessage({
-      type,
-      payload: { ...basePayload, callbackId } as AllMessagePayloads,
+    postMessage(type, {
+      ...basePayload,
+      callbackId,
     });
   }
 }
@@ -194,6 +229,12 @@ export function onMessage<TPayload = unknown>(
   } else {
     messageHandlers.set(type, handler as (message: Message<unknown>) => void);
   }
+
+  try {
+    reportLog(EnumLogLevel.INFO, '注册消息处理器', { type });
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -216,4 +257,6 @@ export function removeMessageHandler<TPayload = unknown>(
   } else {
     messageHandlers.delete(type);
   }
+
+  reportLog(EnumLogLevel.INFO, '移除消息处理器', { type });
 }

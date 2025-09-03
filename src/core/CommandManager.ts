@@ -5,6 +5,7 @@ import { EnumCommands } from '../../shared/enums';
 import { EditorialViewProvider } from '../providers/EditorialViewProvider';
 import { ReviewViewProvider } from '../providers/ReviewViewProvider';
 import { AuthService } from '../services/AuthService';
+import { LogService } from '../services/LogService';
 import { StateService } from '../services/StateService';
 import { showError, showInfo, showWarning } from '../utils';
 
@@ -33,6 +34,9 @@ export class CommandManager {
   /** 状态服务实例，用于获取用户信息等状态 */
   private stateService: StateService;
 
+  /** 日志服务实例 */
+  private log: LogService;
+
   /**
    * 私有构造函数
    *
@@ -41,6 +45,7 @@ export class CommandManager {
    */
   private constructor() {
     this.stateService = StateService.getInstance();
+    this.log = LogService.getInstance();
   }
 
   /**
@@ -88,6 +93,7 @@ export class CommandManager {
    * - ADD_REVIEW_COMMENT: 添加评审意见命令
    */
   public registerCommands(context: vscode.ExtensionContext): void {
+    this.log.info('开始注册 VS Code 命令', 'CommandManager');
     // 退出登录命令
     const logoutCommand = vscode.commands.registerCommand(
       EnumCommands.LOGOUT,
@@ -112,12 +118,23 @@ export class CommandManager {
       this.handleAddReviewComment.bind(this),
     );
 
+    // 查看日志命令
+    const viewLogsCommand = vscode.commands.registerCommand(
+      EnumCommands.VIEW_LOGS,
+      this.handleViewLogs.bind(this),
+    );
+
     context.subscriptions.push(
       logoutCommand,
       openWebPageCommand,
       refreshReviewsCommand,
       addReviewCommentCommand,
+      viewLogsCommand,
     );
+
+    this.log.info('注册 VS Code 命令完成', 'CommandManager', {
+      commands: Object.values(EnumCommands),
+    });
   }
 
   /**
@@ -133,13 +150,16 @@ export class CommandManager {
    */
   private async handleLogout(): Promise<void> {
     try {
+      this.log.info('触发登出操作', 'CommandManager');
       await AuthService.getInstance().loadLogout();
       if (this.viewProvider) {
         this.viewProvider.broadcastAuthState();
       }
       showInfo('已退出登录');
+      this.log.info('登出操作成功', 'CommandManager');
     } catch {
       showError('退出登录失败');
+      this.log.error('登出操作失败', 'CommandManager');
     }
   }
 
@@ -156,10 +176,12 @@ export class CommandManager {
    */
   private async handleOpenWebPage(): Promise<void> {
     try {
+      this.log.info('触发打开 Web 页面操作', 'CommandManager');
       // 简化处理：暂时跳过服务器地址检查，直接提示用户
       showError('请先在 CoReview 面板中配置服务器地址');
     } catch {
       showError('打开Web页面失败');
+      this.log.error('打开 Web 页面失败', 'CommandManager');
     }
   }
 
@@ -176,9 +198,11 @@ export class CommandManager {
    */
   private async handleRefreshWebview(): Promise<void> {
     if (this.viewProvider) {
+      this.log.info('触发刷新 Webview 操作', 'CommandManager');
       this.viewProvider.reloadWebview();
     } else {
       showWarning('视图尚未就绪，稍后重试');
+      this.log.warn('刷新 Webview 被忽略：视图未就绪', 'CommandManager');
     }
   }
 
@@ -200,6 +224,7 @@ export class CommandManager {
     const columnConfig = stateService.getColumnConfig();
 
     if (!columnConfig || columnConfig.length === 0) {
+      this.log.warn('添加评审意见被忽略：未配置列信息', 'CommandManager');
       return;
     }
 
@@ -213,6 +238,7 @@ export class CommandManager {
     const selections = editor.selections;
 
     if (selections.length === 0) {
+      this.log.warn('添加评审意见被忽略：未选择文本', 'CommandManager');
       return;
     }
 
@@ -267,6 +293,12 @@ export class CommandManager {
       // 获取用户信息
       const userDetail = this.stateService.getUserDetail();
 
+      this.log.info('创建评审意见编辑面板', 'CommandManager', {
+        filePath: absolutePath,
+        lineNumber,
+        selections: selectedSegments,
+        selectedText,
+      });
       await this.editorialProvider.createPanel(
         selectedText,
         lineNumber,
@@ -274,8 +306,25 @@ export class CommandManager {
         gitInfo,
         userDetail,
       );
+      this.log.info('编辑面板创建完成', 'CommandManager');
     } else {
       showError('编辑面板未初始化，请重启扩展');
+      this.log.error('编辑面板未初始化', 'CommandManager');
+    }
+  }
+
+  /**
+   * 打开最新日志文件
+   */
+  private async handleViewLogs(): Promise<void> {
+    try {
+      const logService = LogService.getInstance();
+      const filePath = logService.getLogFilePath();
+      const uri = vscode.Uri.file(filePath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch {
+      showError('打开日志失败');
     }
   }
 
@@ -290,6 +339,7 @@ export class CommandManager {
     branchName: string | null;
   }> {
     try {
+      this.log.debug('开始解析 Git 信息', 'CommandManager', { filePath });
       // 获取文件所在目录
       const fileDir = path.dirname(filePath);
 
@@ -317,11 +367,18 @@ export class CommandManager {
         })
         .trim();
 
+      this.log.debug('解析 Git 信息完成', 'CommandManager', {
+        repositoryUrl,
+        branchName,
+      });
       return {
         repositoryUrl: repositoryUrl || null,
         branchName: branchName || null,
       };
     } catch {
+      this.log.warn('解析 Git 信息失败，将使用空信息', 'CommandManager', {
+        filePath,
+      });
       return {
         repositoryUrl: null,
         branchName: null,

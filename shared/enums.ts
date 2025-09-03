@@ -35,6 +35,8 @@ export enum EnumMessageType {
   SaveReviewComment = 'save-review-comment',
   /** 打开文件并跳转到指定行号 */
   OpenFile = 'open-file',
+  /** Webview 向扩展端上报日志事件（级别、上下文、数据等） */
+  WebviewLogReport = 'webview-log',
 
   // Extension → Webview 事件消息
   /** 鉴权状态发生变化时通知 Webview，包括登录、登出、连接状态变更 */
@@ -67,6 +69,9 @@ export enum EnumCommands {
 
   /** 打开添加评审意见面板，用于快速添加代码评审意见 */
   ADD_REVIEW_COMMENT = 'coreview.addReviewComment',
+
+  /** 查看日志文件，打开最近的日志以便排查问题 */
+  VIEW_LOGS = 'coreview.viewLogs',
 }
 
 /**
@@ -161,7 +166,9 @@ export enum EnumCommentOperateType {
 }
 
 /**
- * 确认结果
+ * 确认结果枚举
+ *
+ * 定义评审记录的确认状态，用于后续处理与统计。
  */
 export enum EnumConfirmResult {
   /** 未确认 */
@@ -172,4 +179,16 @@ export enum EnumConfirmResult {
   ToModify = '3',
   /** 拒绝 */
   Rejected = '4',
+}
+
+/**
+ * 日志级别枚举
+ *
+ * 定义 Webview 上报扩展端的日志级别。
+ */
+export enum EnumLogLevel {
+  ERROR = 'error',
+  WARN = 'warn',
+  INFO = 'info',
+  DEBUG = 'debug',
 }

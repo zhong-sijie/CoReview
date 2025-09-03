@@ -38,6 +38,13 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "submenus": [
+      {
+        "id": "coreview.moreActions",
+        "label": "更多操作",
+        "icon": "$(kebab-horizontal)"
+      }
+    ],
     "contexts": [
       {
         "key": "coreview.loggedIn",
@@ -70,6 +77,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "coreview.viewLogs",
+        "title": "查看日志",
+        "category": "CoReview",
+        "icon": "$(preview)"
+      },
+      {
         "command": "coreview.logout",
         "title": "退出登录",
         "category": "CoReview",
@@ -96,14 +109,26 @@
           "group": "navigation"
         },
         {
+          "submenu": "coreview.moreActions",
+          "when": "view == coreview.mainView && coreview.loggedIn",
+          "group": "navigation@1"
+        }
+      ],
+      "coreview.moreActions": [
+        {
+          "command": "coreview.viewLogs",
+          "when": "view == coreview.mainView && coreview.loggedIn",
+          "group": "event"
+        },
+        {
           "command": "coreview.openWebPage",
           "when": "view == coreview.mainView && coreview.loggedIn",
-          "group": "navigation@2"
+          "group": "event"
         },
         {
           "command": "coreview.logout",
           "when": "view == coreview.mainView && coreview.loggedIn",
-          "group": "navigation@3"
+          "group": "event"
         }
       ]
     },
@@ -167,6 +192,8 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "axios": "^1.11.0"
+    "@types/winston": "^2.4.4",
+    "axios": "^1.11.0",
+    "winston": "^3.17.0"
   }
 }

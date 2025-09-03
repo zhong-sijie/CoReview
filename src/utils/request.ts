@@ -1,13 +1,14 @@
 // 导入 axios 核心模块和类型定义
-import axios /** axios 错误类型 */, {
-  AxiosError /** axios 实例类型 */,
-  AxiosInstance /** axios 请求配置类型 */,
-  AxiosRequestConfig /** axios 响应类型 */,
-  AxiosResponse /** axios 内部请求配置类型 */,
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  AxiosRequestConfig,
+  AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
 import { EnumHttpMethod } from '../../shared/enums';
 import { AuthService } from '../services/AuthService';
+import { LogService } from '../services/LogService';
 import { StateService } from '../services/StateService';
 
 /**
@@ -68,6 +69,9 @@ let axiosInstance: AxiosInstance | null = null;
 /** 额外的默认请求头，支持动态添加 */
 let extraDefaultHeaders: Record<string, string> = {};
 
+/** 日志服务（模块级单例缓存） */
+const log = LogService.getInstance();
+
 /**
  * 确保 axios 实例已创建并返回实例
  *
@@ -110,6 +114,8 @@ function ensureInstance(): AxiosInstance {
   // 请求拦截器: 注入 UA、Account、Password
   axiosInstance.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
+      // 打点：请求开始时间
+      (config as any)._startedAt = Date.now();
       // 确保 headers 对象存在
       config.headers = config.headers ?? {};
 
@@ -131,13 +137,48 @@ function ensureInstance(): AxiosInstance {
 
       // 合并默认 headers
       Object.assign(config.headers, extraDefaultHeaders);
+
+      try {
+        const headers = { ...(config.headers as any) } as Record<string, any>;
+        if ('pwd' in headers) {
+          headers.pwd = '***';
+        }
+        log.debug('发起请求', 'request', {
+          method: config.method,
+          url: config.baseURL ? `${config.baseURL}${config.url}` : config.url,
+          headers,
+          params: (config as any).params,
+          data: (config as any).data,
+          skipAuth,
+        });
+      } catch {
+        // ignore log errors
+      }
       return config;
     },
   );
 
   // 响应拦截器
   axiosInstance.interceptors.response.use(
-    (response: AxiosResponse) => response, // 成功响应直接返回
+    (response: AxiosResponse) => {
+      try {
+        const cfg = response.config as any;
+        const startedAt = cfg?._startedAt as number | undefined;
+        const durationMs = startedAt ? Date.now() - startedAt : undefined;
+        log.debug('请求成功', 'request', {
+          method: response.config?.method,
+          url: response.config?.baseURL
+            ? `${response.config.baseURL}${response.config.url}`
+            : response.config?.url,
+          status: response.status,
+          durationMs,
+        });
+      } catch {
+        // ignore
+      }
+
+      return response;
+    },
     async (error: AxiosError) => {
       // 处理 401 未授权错误，自动调用登出逻辑
       if (error.response?.status === 401) {
@@ -148,7 +189,22 @@ function ensureInstance(): AxiosInstance {
         }
       }
 
-      // 可在此处做统一日志/埋点
+      // 记录错误响应
+      try {
+        const cfg = error.config as any;
+        const startedAt = cfg?._startedAt as number | undefined;
+        const durationMs = startedAt ? Date.now() - startedAt : undefined;
+        log.error('请求失败', 'request', {
+          method: cfg?.method,
+          url: cfg?.baseURL ? `${cfg.baseURL}${cfg.url}` : cfg?.url,
+          status: error.response?.status,
+          code: (error as any)?.code,
+          message: error.message,
+          durationMs,
+        });
+      } catch {
+        // ignore
+      }
       return Promise.reject(error); // 错误响应继续抛出
     },
   );

@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { CommandManager } from './core/CommandManager';
 import { EditorialViewProvider } from './providers/EditorialViewProvider';
 import { ReviewViewProvider } from './providers/ReviewViewProvider';
+import { LogService } from './services/LogService';
 import { StateService } from './services/StateService';
 
 /**
@@ -22,6 +23,31 @@ import { StateService } from './services/StateService';
  * @param context VS Code 扩展上下文，提供扩展生命周期管理能力
  */
 export function activate(context: vscode.ExtensionContext) {
+  /** 日志服务实例，负责记录扩展运行日志 */
+  const log = LogService.getInstance();
+
+  // 扩展激活开始
+  log.info('扩展激活开始', 'extension');
+
+  // 记录关键版本信息（用于定位用户版本问题）
+  try {
+    const ext = (vscode as any).extensions.getExtension(
+      (context as any).extension.id,
+    );
+    const pkg = ext?.packageJSON ?? {};
+    const meta = {
+      id: ext?.id,
+      name: pkg.displayName || pkg.name,
+      version: pkg.version,
+      vscodeVersion: vscode.version,
+    } as Record<string, unknown>;
+    log.info('扩展元信息', 'extension', meta);
+  } catch (e) {
+    log.warn('记录扩展元信息失败', 'extension', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
   /** 命令管理器实例，负责处理所有VS Code命令 */
   const commandManager = CommandManager.getInstance();
   /** 状态服务实例，负责管理应用状态和持久化 */
@@ -33,6 +59,9 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册主视图提供者
   /** 主视图提供者实例，负责创建和管理WebView界面 */
   const viewProvider = new ReviewViewProvider(context.extensionUri);
+  log.info('注册主视图提供者', 'extension', {
+    viewType: ReviewViewProvider.viewType,
+  });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       ReviewViewProvider.viewType,
@@ -47,15 +76,21 @@ export function activate(context: vscode.ExtensionContext) {
     () => {
       // 当有新的评审意见被添加时，通知主视图刷新数据
       if (viewProvider) {
+        log.info('检测到新增评审意见，触发主视图刷新', 'extension');
         viewProvider.broadcastNewReviewComment();
       }
     },
   );
-
+  log.info('注册编辑视图提供者', 'extension', {
+    viewType: EditorialViewProvider.viewType,
+  });
   // 设置视图提供者到命令管理器
   commandManager.setViewProvider(viewProvider);
   commandManager.setEditorialProvider(editorialProvider);
 
+  log.info('配置命令管理器完成', 'extension');
+
   // 注册命令
+  log.info('开始注册 VS Code 命令', 'extension');
   commandManager.registerCommands(context);
 }

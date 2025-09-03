@@ -1,3 +1,4 @@
+import { LogService } from './LogService';
 import { WebViewService } from './WebViewService';
 
 /**
@@ -15,6 +16,9 @@ export class WebViewServiceFactory {
   /** 存储不同 Provider 的 WebViewService 实例，键为 Provider ID */
   private static instances = new Map<string, WebViewService>();
 
+  /** 日志服务实例 */
+  private static log = LogService.getInstance();
+
   /**
    * 创建或获取指定 Provider 的 WebViewService 实例
    *
@@ -27,6 +31,9 @@ export class WebViewServiceFactory {
   static createService(providerId: string): WebViewService {
     if (!this.instances.has(providerId)) {
       this.instances.set(providerId, new WebViewService(providerId));
+      this.log.info('创建 WebViewService 实例', 'WebViewServiceFactory', {
+        providerId,
+      });
     }
     return this.instances.get(providerId)!;
   }
@@ -54,6 +61,9 @@ export class WebViewServiceFactory {
    */
   static clearService(providerId: string): void {
     this.instances.delete(providerId);
+    this.log.info('清理 WebViewService 实例', 'WebViewServiceFactory', {
+      providerId,
+    });
   }
 
   /**
@@ -64,5 +74,6 @@ export class WebViewServiceFactory {
    */
   static clearAll(): void {
     this.instances.clear();
+    this.log.info('清理全部 WebViewService 实例', 'WebViewServiceFactory');
   }
 }
