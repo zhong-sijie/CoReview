@@ -14,7 +14,11 @@ import {
   removeMessageHandler,
 } from '@common/services/vscodeService';
 import { REVIEW_FILTER_OPTIONS } from '@shared/constants';
-import { EnumInputType, EnumMessageType } from '@shared/enums';
+import {
+  EnumConfirmResult,
+  EnumInputType,
+  EnumMessageType,
+} from '@shared/enums';
 import type {
   ColumnConfig,
   ExtensionMessage,
@@ -158,6 +162,44 @@ const HomePage = () => {
     EnumModalAction.Reset,
   );
 
+  /**
+   * 构造更新后的行（纯函数）：根据列配置与输入值返回新行
+   */
+  const buildUpdatedRow = useCallback(
+    (
+      sourceRow: ReviewCommentItem,
+      col: ColumnConfig,
+      value: string,
+    ): ReviewCommentItem => {
+      const nextRow = cloneDeep(sourceRow);
+      const { columnCode, inputType, enumValues } = col;
+      const trimValue = value?.trim() ?? '';
+
+      switch (inputType) {
+        case EnumInputType.COMBO_BOX: {
+          const matched =
+            enumValues?.find(item => item.showName === value) || {};
+          (nextRow.values[
+            columnCode as keyof ReviewCommentValues
+          ] as ReviewFieldValue<string | EnumConfirmResult>) =
+            matched as ReviewFieldValue<string | EnumConfirmResult>;
+          break;
+        }
+        default: {
+          (nextRow.values[
+            columnCode as keyof ReviewCommentValues
+          ] as ReviewFieldValue<string>) = {
+            value: trimValue,
+            showName: trimValue,
+          } as ReviewFieldValue<string>;
+        }
+      }
+
+      return nextRow;
+    },
+    [],
+  );
+
   // 异步消息执行（分离 hook 以便分别控制 loading）
   /** 更新上下文的异步操作 */
   const { execute: runUpdateContext, loading: updatingContextLoading } =
@@ -277,77 +319,50 @@ const HomePage = () => {
   const updateMyData = useCallback(
     (value: string, row: ReviewCommentItem, col: ColumnConfig) => {
       const trimValue = value?.trim();
+      const { required } = col;
 
-      // 如果字段必填，且值为空，则不更新
-      if (col.required && !trimValue) {
+      if (required && !trimValue) {
         setEditingCell(undefined);
         return;
       }
 
-      // 更新编辑数据存储
-      setEditData(old => {
-        // 创建新的 Map 实例，避免直接修改原对象
-        const newEditData = new Map(old);
+      // 1) 基于当前状态复制出可变 Map
+      const nextEditData = new Map(editData);
+      const nextAddData = new Map(addData);
 
-        // 获取已存在的编辑行数据，如果没有则基于原始行数据创建
-        const existingRow = newEditData.get(row.id) || cloneDeep(row);
+      // 2) 选择基准行（新增优先使用新增集合中的行）
+      const isNewRow = nextAddData.has(row.id);
+      const baseRow =
+        (isNewRow ? nextAddData.get(row.id) : nextEditData.get(row.id)) || row;
 
-        const { columnCode, inputType, enumValues } = col;
+      // 3) 生成更新后的行（纯函数返回）
+      const updatedRow = buildUpdatedRow(baseRow, col, value);
 
-        // 根据列配置更新对应字段的值
-        switch (inputType) {
-          case EnumInputType.COMBO_BOX:
-            // 对于下拉框类型，根据显示名称找到对应的枚举值对象
-            existingRow.values[columnCode as keyof ReviewCommentValues] =
-              enumValues?.find(item => item.showName === value) ||
-              ({} as ReviewFieldValue<string>);
-            break;
-
-          default:
-            // 对于其他类型，创建标准的字段值对象
-            existingRow.values[columnCode as keyof ReviewCommentValues] = {
-              value: trimValue,
-              showName: trimValue,
-            };
-        }
-
-        /** 获取原始 row，需要同时从原始评审数据和新增评审意见中查找 */
+      // 4) 写回到对应集合（新增直接写 addData；既有按是否变化写 editData）
+      if (isNewRow) {
+        nextAddData.set(row.id, updatedRow);
+      } else {
         const originalRow = originalReviews.find(item => item.id === row.id);
-        const isNewRow = addData.has(row.id);
-
-        if (isNewRow) {
-          // 如果是新增的行，更新到 addData 中
-          setAddData(oldAddData => {
-            const newAddData = new Map(oldAddData);
-            newAddData.set(row.id, existingRow);
-            return newAddData;
-          });
+        const unchanged = isEqual(originalRow?.values, updatedRow.values);
+        if (unchanged && originalRow) {
+          nextEditData.delete(row.id);
         } else {
-          // 如果是原始行，判断是否有实际修改
-          const isSame = isEqual(originalRow?.values, existingRow.values);
-
-          if (isSame && originalRow) {
-            // 如果原始 row 和 existingRow 完全一致，则删除编辑数据
-            newEditData.delete(row.id);
-          } else {
-            // 将更新后的行数据存储到编辑数据 Map 中
-            newEditData.set(row.id, existingRow);
-          }
+          nextEditData.set(row.id, updatedRow);
         }
+      }
 
-        // 发送完整的编辑数据和新增数据到扩展端进行持久化
-        // 将 Map 转换为数组格式以便序列化
-        postMessage(EnumMessageType.UpdateEditData, {
-          editData: Array.from(newEditData.entries()),
-          addData: Array.from(addData.entries()),
-        });
-
-        return newEditData;
+      // 5) 同步状态与持久化
+      setAddData(nextAddData);
+      setEditData(nextEditData);
+      postMessage(EnumMessageType.UpdateEditData, {
+        editData: Array.from(nextEditData.entries()),
+        addData: Array.from(nextAddData.entries()),
       });
 
+      // 6) 退出编辑态
       setEditingCell(undefined);
     },
-    [originalReviews, addData],
+    [originalReviews, addData, editData, buildUpdatedRow],
   );
 
   /**

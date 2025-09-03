@@ -159,3 +159,17 @@ export enum EnumCommentOperateType {
   /** 删除操作，删除评审记录 */
   Delete = 3,
 }
+
+/**
+ * 确认结果
+ */
+export enum EnumConfirmResult {
+  /** 未确认 */
+  Unconfirmed = 'unconfirmed',
+  /** 已修改 */
+  Modified = '2',
+  /** 待修改 */
+  ToModify = '3',
+  /** 拒绝 */
+  Rejected = '4',
+}

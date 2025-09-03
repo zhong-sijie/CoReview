@@ -1,6 +1,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { EnumMessageType, EnumViews } from '../../shared/enums';
+import {
+  EnumConfirmResult,
+  EnumMessageType,
+  EnumViews,
+} from '../../shared/enums';
 import {
   ColumnConfig,
   LoginPayload,
@@ -37,6 +41,18 @@ import { showError, showInfo } from '../utils';
  * - Webview → Extension: GetAuthState / TestConnection / Login / GetInitialData 等
  * - Extension → Webview: AuthState / TableDataLoaded 等事件，以及异步操作的回调
  */
+/**
+ * 装饰状态枚举（仅用于前端展示规则）
+ */
+
+/** 装饰项类型，统一用于下划线与 hover 的应用 */
+type DecorationItem = {
+  filePath: string;
+  lineRange: string;
+  hover?: string;
+  status?: EnumConfirmResult;
+};
+
 export class ReviewViewProvider implements vscode.WebviewViewProvider {
   /** 视图类型标识符，对应 EnumViews.MAIN_VIEW */
   public static readonly viewType = EnumViews.MAIN_VIEW;
@@ -53,8 +69,23 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   /** 状态服务实例，负责状态管理和持久化 */
   private stateService: StateService;
 
+  /** 统一的下划线装饰类型（包含 overviewRuler 标记） */
+  private underlineDecoration?: vscode.TextEditorDecorationType;
+  private underlineDecorationAmber?: vscode.TextEditorDecorationType;
+
+  /** 最近一次从 Webview 收到的装饰项，用于在编辑器切换时重放 */
+  private lastDecorationItems: DecorationItem[] = [];
+
   /** 表格服务实例，负责表格数据操作 */
   private tableService: TableService;
+
+  /** 扩展加载阶段预取并缓存的初始表格数据 */
+  private cachedInitialData?: {
+    columns?: ColumnConfig[];
+    projects?: ProjectOptionResponse[];
+    comments?: ReviewCommentItem[];
+    queryContext?: QueryContext | null;
+  };
 
   /**
    * 通用的异步消息处理器
@@ -108,6 +139,58 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     this.stateService = StateService.getInstance();
     this.tableService = TableService.getInstance();
     this.setupMessageHandlers();
+    // 扩展加载时预取初始化数据（不依赖页面主动请求）
+    void this.prefetchInitialDataAndApplyDecorations();
+
+    // 监听编辑器变化，重新应用装饰
+    this.setupEditorDecorationListeners();
+  }
+
+  /**
+   * 如果存在缓存的装饰项，则应用到当前可见编辑器
+   */
+  private applyLastDecorationsIfAny(): void {
+    if (this.lastDecorationItems.length === 0) {
+      return;
+    }
+    this.updateUnderlineDecorations(
+      this.lastDecorationItems as DecorationItem[],
+    );
+  }
+
+  /**
+   * 注册编辑器相关的装饰监听，在编辑器切换或可见编辑器变化时重放装饰
+   */
+  private setupEditorDecorationListeners(): void {
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      this.applyLastDecorationsIfAny();
+    });
+    vscode.window.onDidChangeVisibleTextEditors(() => {
+      this.applyLastDecorationsIfAny();
+    });
+  }
+
+  /**
+   * 预取初始数据并应用装饰
+   *
+   * 从状态判断登录态，登录后拉取列/项目/评论/上下文，
+   * 缓存结果并构建/应用装饰。
+   * 纯函数化封装，便于复用与单元测试。
+   */
+  private async prefetchInitialDataAndApplyDecorations(): Promise<void> {
+    try {
+      const state = this.stateService.getState();
+      if (!state.loggedIn) {
+        return;
+      }
+      const { columns, projects, comments, queryContext } =
+        await this.tableService.loadGetInitialTable();
+      this.cachedInitialData = { columns, projects, comments, queryContext };
+      const items = this.buildDecorationItemsIncludingAddData(comments);
+      this.updateUnderlineDecorations(items);
+    } catch {
+      // ignore
+    }
   }
 
   /**
@@ -242,6 +325,14 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
           // 3) 登录成功后获取表格初始化数据（列配置 + 项目列表）
           const { columns, projects, comments, queryContext } =
             await this.tableService.loadGetInitialTable();
+
+          // 刷新缓存并下发
+          this.cachedInitialData = {
+            columns,
+            projects,
+            comments,
+            queryContext,
+          };
           this.sendColumnConfig(columns, projects, comments, queryContext);
 
           showInfo('登录成功');
@@ -272,6 +363,8 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         await this.handleAsyncMessage(message, async () => {
           // 调用表格服务保存编辑数据和新增数据
           await this.tableService.saveData(editData, addData);
+          // 保存后立即重建装饰
+          this.rebuildAndApplyDecorations();
         });
       },
     );
@@ -303,6 +396,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
               payload: { comments },
             });
           }
+
+          // 查询完成后，直接在扩展端应用装饰（包含编辑与新增）
+          this.rebuildAndApplyDecorations();
         });
       },
     );
@@ -384,6 +480,148 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * 重新构建并应用装饰
+   *
+   * 基于当前缓存的评论 + 已持久化的编辑数据 + 新增数据进行合并，
+   * 然后重建 hover/下划线/overviewRuler 装饰。
+   */
+  private rebuildAndApplyDecorations(): void {
+    const baseComments = this.cachedInitialData?.comments ?? [];
+    const mergedComments = this.computeMergedComments(
+      baseComments,
+      this.tableService.getPersistedEditData() || undefined,
+    );
+    const items = this.computeDecorationItems(mergedComments);
+    this.updateUnderlineDecorations(items);
+  }
+
+  /**
+   * 从评论数据构建装饰项
+   */
+  private buildDecorationEntriesFromComments(
+    comments: ReviewCommentItem[],
+  ): DecorationItem[] {
+    const items: DecorationItem[] = [];
+
+    // 小工具：优先取 showName，其次取 value，再回退空字符串
+    const getFieldText = (fv: any): string => {
+      const val = fv?.showName ?? fv?.value ?? '';
+      return typeof val === 'string' ? val.trim() : String(val ?? '');
+    };
+
+    const buildHover = (c: ReviewCommentItem): string => {
+      const {
+        identifier,
+        type,
+        priority,
+        module: moduleField,
+        comment,
+        confirmNotes,
+        reviewer,
+        realConfirmer,
+        assignConfirmer,
+      } = c.values ?? {};
+
+      const id = identifier?.value ?? '';
+      const typeText = getFieldText(type);
+      const priorityText = getFieldText(priority);
+      const moduleName = getFieldText(moduleField);
+      const commentText = getFieldText(comment);
+      const confirmNotesText = getFieldText(confirmNotes);
+      const reviewerText = getFieldText(reviewer);
+      const confirmerText =
+        getFieldText(realConfirmer) || getFieldText(assignConfirmer);
+
+      const headerParts = [
+        id ? `ID: ${id}` : '',
+        typeText,
+        priorityText,
+        moduleName,
+      ].filter(Boolean);
+      const header = headerParts.length ? `**${headerParts.join(' · ')}**` : '';
+
+      const lines: string[] = [];
+      if (header) {
+        lines.push(header);
+      }
+      lines.push(`检视意见: ${commentText || '(无检视意见)'}`);
+      if (reviewerText) {
+        lines.push(`检视人员: ${reviewerText}`);
+      }
+      if (confirmNotesText) {
+        lines.push(`确认说明: ${confirmNotesText}`);
+      }
+      if (confirmerText) {
+        lines.push(`确认人员: ${confirmerText}`);
+      }
+      return lines.join('\n\n');
+    };
+
+    for (const c of comments ?? []) {
+      const filePath = getFieldText((c.values as any)?.filePath);
+      const lineRange = getFieldText((c.values as any)?.lineRange);
+      if (!filePath || !lineRange) {
+        continue;
+      }
+
+      items.push({
+        filePath,
+        lineRange,
+        hover: buildHover(c),
+        status: c.values?.confirmResult?.value,
+      });
+    }
+
+    return items;
+  }
+
+  /**
+   * 从评论与新增记录（addData）联合构建装饰项
+   */
+  private buildDecorationItemsIncludingAddData(
+    comments?: ReviewCommentItem[] | null,
+  ): DecorationItem[] {
+    return this.computeDecorationItems(comments);
+  }
+
+  private computeMergedComments(
+    base: ReviewCommentItem[],
+    edit?: Record<string, ReviewCommentItem>,
+  ): ReviewCommentItem[] {
+    const mergedMap = new Map<string, ReviewCommentItem>();
+    for (const c of base ?? []) {
+      mergedMap.set(c.id, c);
+    }
+    if (edit) {
+      for (const id of Object.keys(edit)) {
+        mergedMap.set(id, edit[id]);
+      }
+    }
+    return Array.from(mergedMap.values());
+  }
+
+  private computeDecorationItems(
+    comments?: ReviewCommentItem[] | null,
+  ): DecorationItem[] {
+    const list: ReviewCommentItem[] = [];
+    if (comments && comments.length > 0) {
+      list.push(...comments);
+    }
+    const addData = this.stateService.getAddData() as
+      | Record<string, ReviewCommentItem>
+      | undefined;
+    if (addData) {
+      for (const key of Object.keys(addData)) {
+        const item = addData[key];
+        if (item) {
+          list.push(item);
+        }
+      }
+    }
+    return this.buildDecorationEntriesFromComments(list);
+  }
+
+  /**
    * 发送当前鉴权状态给 Webview
    *
    * 同时更新 VS Code 上下文键，用于控制命令的可用性。
@@ -456,6 +694,10 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
           addData, // 新增：包含新增的评审意见
         },
       });
+
+      // 直接在扩展端应用装饰（包含新增数据）
+      const items = this.buildDecorationItemsIncludingAddData(comments);
+      this.updateUnderlineDecorations(items);
     }
   }
 
@@ -493,6 +735,8 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
         },
       });
     }
+    // 同步重建装饰，确保无需打开侧边栏也能看到新建评审的下划线与 hover
+    this.rebuildAndApplyDecorations();
   }
 
   /**
@@ -509,13 +753,32 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     // 仅下发鉴权状态；列配置在登录成功后再拉取
     this.sendAuthState();
     const authState = this.stateService.getState();
-    if (authState.loggedIn) {
-      this.tableService
-        .loadGetInitialTable()
-        .then(({ columns, projects, comments, queryContext }) => {
-          this.sendColumnConfig(columns, projects, comments, queryContext);
-        });
+    if (!authState.loggedIn) {
+      return;
     }
+
+    // 优先使用扩展启动时预取的缓存
+    if (this.cachedInitialData) {
+      const cached = this.cachedInitialData;
+      const columns = cached.columns;
+      const projects = cached.projects;
+      const comments = cached.comments;
+      const queryContext = cached.queryContext;
+      this.sendColumnConfig(columns, projects, comments, queryContext);
+      const items = this.buildDecorationItemsIncludingAddData(comments);
+      this.updateUnderlineDecorations(items);
+      return;
+    }
+
+    // 无缓存则按老流程拉取一次并缓存
+    this.tableService
+      .loadGetInitialTable()
+      .then(({ columns, projects, comments, queryContext }) => {
+        this.cachedInitialData = { columns, projects, comments, queryContext };
+        this.sendColumnConfig(columns, projects, comments, queryContext);
+        const items = this.buildDecorationItemsIncludingAddData(comments);
+        this.updateUnderlineDecorations(items);
+      });
   }
 
   /**
@@ -637,5 +900,208 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     editor.selections = selections;
     // 将视图滚动到第一段
     editor.revealRange(selections[0], vscode.TextEditorRevealType.InCenter);
+  }
+
+  /**
+   * 将 "4 ~ 8; 10 ~ 12" 解析为 vscode.Range 数组（基于当前文档）
+   */
+  private parseRangesForDocument(
+    doc: vscode.TextDocument,
+    lineRange: string,
+  ): vscode.Range[] {
+    const segments = (lineRange || '')
+      .split(';')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const ranges: vscode.Range[] = [];
+    for (const seg of segments) {
+      let m = seg.match(/^(\d+)\s*[~～]\s*(\d+)$/);
+      if (m) {
+        let start = parseInt(m[1], 10);
+        let end = parseInt(m[2], 10);
+        if (Number.isNaN(start) || Number.isNaN(end)) {
+          continue;
+        }
+        if (end < start) {
+          [start, end] = [end, start];
+        }
+        const sLine = Math.max(0, Math.min(doc.lineCount - 1, start - 1));
+        const eLine = Math.max(0, Math.min(doc.lineCount - 1, end - 1));
+        const sPos = new vscode.Position(sLine, 0);
+        const ePos = doc.lineAt(eLine).range.end;
+        ranges.push(new vscode.Range(sPos, ePos));
+        continue;
+      }
+
+      m = seg.match(/^(\d+)$/);
+      if (m) {
+        const ln = parseInt(m[1], 10);
+        if (Number.isNaN(ln)) {
+          continue;
+        }
+        const line = Math.max(0, Math.min(doc.lineCount - 1, ln - 1));
+        const sPos = new vscode.Position(line, 0);
+        const ePos = doc.lineAt(line).range.end;
+        ranges.push(new vscode.Range(sPos, ePos));
+      }
+    }
+    return ranges;
+  }
+
+  /**
+   * 创建或获取下划线装饰类型（未确认状态）
+   */
+  private createOrGetUnderlineDecoration(): vscode.TextEditorDecorationType {
+    if (!this.underlineDecoration) {
+      this.underlineDecoration = vscode.window.createTextEditorDecorationType({
+        textDecoration:
+          'underline; text-decoration-color: var(--vscode-editorInfo-foreground);',
+        overviewRulerColor: new vscode.ThemeColor('editorInfo.foreground'),
+        overviewRulerLane: vscode.OverviewRulerLane.Right,
+      });
+    }
+    return this.underlineDecoration;
+  }
+
+  /**
+   * 创建或获取下划线装饰类型（待修改状态）
+   */
+  private createOrGetUnderlineDecorationAmber(): vscode.TextEditorDecorationType {
+    if (!this.underlineDecorationAmber) {
+      this.underlineDecorationAmber =
+        vscode.window.createTextEditorDecorationType({
+          textDecoration: 'underline; text-decoration-color: #ff9e35;',
+          overviewRulerColor: '#ff9e35',
+          overviewRulerLane: vscode.OverviewRulerLane.Right,
+        });
+    }
+    return this.underlineDecorationAmber;
+  }
+
+  /**
+   * 归一化装饰项路径
+   */
+  private normalizeDecorationItems(items: DecorationItem[]): DecorationItem[] {
+    return items
+      .filter(it => it.filePath && it.lineRange)
+      .map(it => ({
+        filePath: it.filePath.replace(/\\/g, '/'),
+        lineRange: it.lineRange,
+        hover: it.hover,
+        status: it.status,
+      }));
+  }
+
+  /**
+   * 过滤与当前文档相关的装饰项
+   */
+  private filterRelatedDecorationItems(
+    normalizedItems: DecorationItem[],
+    docPath: string,
+  ): DecorationItem[] {
+    const normalizedDocPath = docPath.replace(/\\/g, '/');
+    return normalizedItems.filter(it => {
+      return (
+        normalizedDocPath.endsWith(it.filePath) ||
+        it.filePath.endsWith(normalizedDocPath) ||
+        normalizedDocPath.includes(it.filePath)
+      );
+    });
+  }
+
+  /**
+   * 构建装饰选项数组
+   */
+  private buildDecorationOptions(
+    relatedItems: DecorationItem[],
+    document: vscode.TextDocument,
+  ): {
+    unconfirmed: vscode.DecorationOptions[];
+    toModify: vscode.DecorationOptions[];
+  } {
+    const optionsUnconfirmed: vscode.DecorationOptions[] = [];
+    const optionsToModify: vscode.DecorationOptions[] = [];
+
+    for (const it of relatedItems) {
+      const ranges = this.parseRangesForDocument(document, it.lineRange);
+      for (const r of ranges) {
+        const md = new vscode.MarkdownString(it.hover ?? '');
+        md.isTrusted = true;
+
+        if (
+          it.status === EnumConfirmResult.Modified ||
+          it.status === EnumConfirmResult.Rejected
+        ) {
+          continue; // 不显示
+        }
+
+        if (it.status === EnumConfirmResult.ToModify) {
+          optionsToModify.push({ range: r, hoverMessage: md });
+        } else {
+          optionsUnconfirmed.push({ range: r, hoverMessage: md });
+        }
+      }
+    }
+
+    return { unconfirmed: optionsUnconfirmed, toModify: optionsToModify };
+  }
+
+  /**
+   * 为单个编辑器应用装饰
+   */
+  private applyDecorationsToEditor(
+    editor: vscode.TextEditor,
+    relatedItems: DecorationItem[],
+  ): void {
+    try {
+      const { unconfirmed, toModify } = this.buildDecorationOptions(
+        relatedItems,
+        editor.document,
+      );
+
+      // 可能抛错：当编辑器在迭代过程中被释放或传入范围异常时
+      editor.setDecorations(this.underlineDecoration!, unconfirmed);
+      editor.setDecorations(this.underlineDecorationAmber!, toModify);
+    } catch {
+      // ignore per-editor failure
+    }
+  }
+
+  /**
+   * 更新所有可见编辑器上的下划线装饰
+   */
+  private updateUnderlineDecorations(items: DecorationItem[]): void {
+    try {
+      // 缓存最新的装饰项，便于文件切换时重放
+      this.lastDecorationItems = items || [];
+
+      // 创建装饰类型
+      this.createOrGetUnderlineDecoration();
+      this.createOrGetUnderlineDecorationAmber();
+
+      // 归一化路径为 fsPath 末尾比较
+      const normalizedItems = this.normalizeDecorationItems(items);
+
+      // 对每个可见编辑器应用装饰（仅匹配到的文件）
+      for (const editor of vscode.window.visibleTextEditors) {
+        const docPath = editor.document.uri.fsPath;
+        const related = this.filterRelatedDecorationItems(
+          normalizedItems,
+          docPath,
+        );
+
+        if (related.length === 0) {
+          // 清空该编辑器的装饰
+          editor.setDecorations(this.underlineDecoration!, []);
+          editor.setDecorations(this.underlineDecorationAmber!, []);
+          continue;
+        }
+
+        this.applyDecorationsToEditor(editor, related);
+      }
+    } catch {
+      // ignore top-level failure in applying decorations
+    }
   }
 }

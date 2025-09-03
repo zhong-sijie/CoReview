@@ -11,6 +11,7 @@ import {
 } from '@common/services/vscodeService';
 import {
   EnumCommentOperateType,
+  EnumConfirmResult,
   EnumInputType,
   EnumMessageType,
 } from '@shared/enums';
@@ -441,10 +442,6 @@ const DynamicFormField = ({
  */
 const createFieldConfigs = (): FieldConfig[] => [
   {
-    columnCode: 'confirmResult',
-    getDefaultValue: () => ({ value: 'unconfirmed', showName: '未确认' }),
-  },
-  {
     columnCode: 'projectId',
     getDefaultValue: () => ({ value: '', showName: '' }),
     forceRequired: true,
@@ -665,7 +662,10 @@ const AddReviewCommentPage = () => {
             value: formatCurrentDateTime(),
             showName: formatCurrentDateTime(),
           },
-          confirmResult: { value: 'unconfirmed', showName: '未确认' },
+          confirmResult: {
+            value: EnumConfirmResult.Unconfirmed,
+            showName: '未确认',
+          },
         },
       },
     };

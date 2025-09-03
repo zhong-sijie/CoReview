@@ -261,11 +261,11 @@ export class TableService {
         editData.length > 0 ? Object.fromEntries(editData) : null;
       stateService.setEditData(editDataObject);
 
-      // 保存新增数据
+      // 保存新增数据（保持调用方给定的顺序与内容）
       const addDataObject =
         addData.length > 0 ? Object.fromEntries(addData) : null;
       if (addDataObject) {
-        stateService.saveAddData(addDataObject);
+        stateService.setAddData(addDataObject);
       } else {
         stateService.clearAddData();
       }

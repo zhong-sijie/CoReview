@@ -1,4 +1,8 @@
-import { type EnumInputType, type EnumReviewListFilter } from './enums';
+import {
+  EnumConfirmResult,
+  type EnumInputType,
+  type EnumReviewListFilter,
+} from './enums';
 
 /**
  * VSCode API 全局类型声明
@@ -281,7 +285,7 @@ export interface ReviewCommentValues {
   /** 评审时间，记录创建或最新评审的时间 */
   reviewDate?: ReviewFieldValue<string>;
   /** 确认结果，如 unconfirmed、accepted、rejected 等 */
-  confirmResult?: ReviewFieldValue<string>;
+  confirmResult?: ReviewFieldValue<EnumConfirmResult>;
   /** 实际确认人账号，showName 为中文姓名，未确认为 null */
   realConfirmer?: ReviewFieldValue<string | null>;
   /** 评审补充说明或评论内容，支持富文本或纯文本 */

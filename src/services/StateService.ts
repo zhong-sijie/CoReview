@@ -536,23 +536,12 @@ export class StateService {
   }
 
   /**
-   * 保存新增数据
-   *
-   * 保存新增的评审意见到临时存储中。
-   * 新增的数据会与现有数据合并，新增的在最前面。
-   *
-   * @param comment 新增的评审意见数据，null 表示清除数据
+   * 直接设置新增数据（调用方需保证顺序与合并策略）
    */
-  public saveAddData(comment: Record<string, ReviewCommentItem> | null): void {
-    const currentComments = this.state.addData || {};
-
-    // 合并新增的评审意见到现有数据中，新增的在最前面
-    const allNewComments = { ...(comment || {}), ...currentComments };
-
-    this.state.addData = allNewComments;
-
+  public setAddData(addData: Record<string, ReviewCommentItem> | null): void {
+    this.state.addData = addData;
     if (this.memento) {
-      this.memento.update(StateService.STORAGE_KEYS.ADD_DATA, allNewComments);
+      this.memento.update(StateService.STORAGE_KEYS.ADD_DATA, addData);
     }
     this.notifyStateChange();
   }

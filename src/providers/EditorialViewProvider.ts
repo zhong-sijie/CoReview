@@ -293,9 +293,10 @@ export class EditorialViewProvider {
         try {
           const { comment, callbackId } = message.payload ?? {};
 
-          // 1. 将评审意见保存到 StateService 的临时存储中
-          // comment 已经是 Record<string, ReviewCommentItem> 格式，直接传递
-          this.stateService.saveAddData(comment);
+          // 1. 在调用处处理顺序：新建在前，已有在后
+          const existing = this.stateService.getAddData();
+          const merged = { ...(comment || {}), ...(existing || {}) };
+          this.stateService.setAddData(merged);
 
           // 2. 发送保存结果
           if (this._panel) {
