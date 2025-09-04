@@ -213,6 +213,20 @@ function ensureInstance(): AxiosInstance {
 }
 
 /**
+ * 更新全局 axios 实例的基础 URL
+ *
+ * 当服务器地址在运行时发生变化（例如连接测试后写入）时，
+ * 需要同步更新已创建的 axios 实例的 baseURL，避免后续相对路径请求失败。
+ *
+ * @param baseUrl 新的基础 URL；传入 null/空时将移除 baseURL
+ */
+export function setRequestBaseUrl(baseUrl: string | null): void {
+  if (axiosInstance) {
+    axiosInstance.defaults.baseURL = baseUrl || undefined;
+  }
+}
+
+/**
  * 核心请求函数
  *
  * 执行HTTP请求的核心函数，确保axios实例已创建并处理请求配置。

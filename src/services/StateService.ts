@@ -7,6 +7,7 @@ import {
   UserDetail,
 } from '../../shared/types';
 import { getArrayLength, getObjectKeyCount } from '../../shared/utils';
+import { setRequestBaseUrl } from '../utils/request';
 import { LogService } from './LogService';
 
 /**
@@ -137,6 +138,8 @@ export class StateService {
   public initialize(context: vscode.ExtensionContext): void {
     this.memento = context.globalState;
     this.loadStateFromStorage();
+    // 确保请求客户端的 baseURL 与已恢复的 serverUrl 保持一致
+    setRequestBaseUrl(this.state.serverUrl);
     this.log.info('状态服务初始化完成', 'StateService', {
       loggedIn: this.state.loggedIn,
       connectionOk: this.state.connectionOk,
@@ -257,6 +260,8 @@ export class StateService {
     if (url && this.memento) {
       this.memento.update(StateService.STORAGE_KEYS.BASE_URL, url);
     }
+    // 同步更新 axios 实例的基础 URL，避免后续请求仍使用旧的 baseURL
+    setRequestBaseUrl(url);
     this.notifyStateChange();
     this.log.info('更新服务器地址', 'StateService', { serverUrl: url });
   }
@@ -426,6 +431,8 @@ export class StateService {
       columnConfig: null,
       addData: null,
     };
+    // 清除请求客户端的 baseURL
+    setRequestBaseUrl(null);
     this.notifyStateChange();
   }
 
