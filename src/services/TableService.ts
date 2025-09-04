@@ -165,14 +165,25 @@ export class TableService {
   public async loadGetInitialTable(): Promise<InitialTableData> {
     // 获取持久化的查询上下文状态
     const stateService = StateService.getInstance();
+    const appState = stateService.getState();
     const queryContext = stateService.getQueryContext();
 
     this.log.debug('获取初始表格数据', 'TableService', {
       serverUrl: stateService.getServerUrl(),
-      connectionOk: stateService.getState().connectionOk,
-      loggedIn: stateService.getState().loggedIn,
+      connectionOk: appState.connectionOk,
+      loggedIn: appState.loggedIn,
       queryContext,
     });
+
+    // 未登录或连接未就绪或缺少 serverUrl 时，直接返回空数据，避免触发鉴权接口
+    if (!appState.loggedIn) {
+      return {
+        columns: [],
+        projects: [],
+        comments: [],
+        queryContext: null,
+      };
+    }
 
     // 先获取列配置和项目列表（列配置会自动缓存）
     const [columns, projects] = await Promise.all([

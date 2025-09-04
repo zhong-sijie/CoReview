@@ -407,6 +407,16 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       async message => {
         await this.handleAsyncMessage(message, async () => {
           this.log.debug('请求初始数据', 'ReviewViewProvider');
+          // 未登录或连接未就绪时，直接返回空数据，避免触发需要鉴权的请求
+          const state = this.stateService.getState();
+          if (
+            !state.loggedIn ||
+            !state.connectionOk ||
+            !this.stateService.getServerUrl()
+          ) {
+            this.sendColumnConfig([], [], [], null);
+            return;
+          }
           // 1) 调用表格服务并行获取列配置与项目
           const { columns, projects, comments, queryContext } =
             await this.tableService.loadGetInitialTable();
