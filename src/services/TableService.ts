@@ -233,6 +233,22 @@ export class TableService {
   }
 
   /**
+   * 统计当前用户“待处理/待我确认”的评审数量
+   *
+   * 通过查询筛选条件为 ToConfirm 的列表，返回记录条数。
+   */
+  public async loadPendingCount(): Promise<number> {
+    try {
+      const resp = await this.loadQueryComments({
+        type: EnumReviewListFilter.ToConfirm,
+      });
+      return Array.isArray(resp.comments) ? resp.comments.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * 查询评审意见列表
    *
    * 根据项目ID和筛选类型查询评审评论列表。

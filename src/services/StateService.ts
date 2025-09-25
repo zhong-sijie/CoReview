@@ -81,6 +81,8 @@ export class StateService {
     COLUMN_CONFIG: 'coreview.columnConfig',
     /** 新增的评审意见临时存储 */
     ADD_DATA: 'coreview.addData',
+    /** 每日提醒（初始化/11点/登录触发）的最后推送日期（YYYY-MM-DD，本地时区） */
+    LAST_DAILY_REMINDER_DATE: 'coreview.lastDailyReminderDate',
   } as const;
 
   /** 当前应用状态，包含所有运行时状态信息 */
@@ -435,6 +437,38 @@ export class StateService {
     setRequestBaseUrl(null);
     this.notifyStateChange();
   }
+
+  /** 获取上次每日提醒日期（YYYY-MM-DD） */
+  public getLastDailyReminderDate(): string | undefined {
+    if (!this.memento) {
+      return undefined;
+    }
+    return this.memento.get<string>(
+      StateService.STORAGE_KEYS.LAST_DAILY_REMINDER_DATE,
+    );
+  }
+
+  /** 设置上次每日提醒日期（YYYY-MM-DD） */
+  public async setLastDailyReminderDate(dateStr: string): Promise<void> {
+    if (this.memento) {
+      await this.memento.update(
+        StateService.STORAGE_KEYS.LAST_DAILY_REMINDER_DATE,
+        dateStr,
+      );
+    }
+  }
+
+  /** 清除上次每日提醒日期（用于手动重置当天提醒） */
+  public async clearLastDailyReminderDate(): Promise<void> {
+    if (this.memento) {
+      await this.memento.update(
+        StateService.STORAGE_KEYS.LAST_DAILY_REMINDER_DATE,
+        undefined,
+      );
+    }
+  }
+
+  // 已移除“登录提醒日期”独立状态；统一使用 LAST_DAILY_REMINDER_DATE
 
   /**
    * 设置编辑数据

@@ -5,6 +5,7 @@ import { CommandManager } from './core/CommandManager';
 import { EditorialViewProvider } from './providers/EditorialViewProvider';
 import { ReviewViewProvider } from './providers/ReviewViewProvider';
 import { LogService } from './services/LogService';
+import { ReminderService } from './services/ReminderService';
 import { StateService } from './services/StateService';
 
 /**
@@ -93,4 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册命令
   log.info('开始注册 VS Code 命令', 'extension');
   commandManager.registerCommands(context);
+
+  // 启动每日提醒服务
+  ReminderService.getInstance().start(context);
 }

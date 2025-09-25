@@ -23,6 +23,7 @@ import {
 } from '../../shared/types';
 import { AuthService } from '../services/AuthService';
 import { LogService } from '../services/LogService';
+import { ReminderService } from '../services/ReminderService';
 import { StateService } from '../services/StateService';
 import { TableService } from '../services/TableService';
 import { WebViewService } from '../services/WebViewService';
@@ -397,6 +398,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
 
           showInfo('登录成功');
           this.log.info('登录成功', 'ReviewViewProvider');
+
+          // 4) 登录成功后触发即时提醒（允许当日多次），同时避免当日每日提醒重复
+          ReminderService.getInstance().notifyOnLogin();
         });
       },
     );
