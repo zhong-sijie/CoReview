@@ -259,8 +259,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   /**
    * 重新加载整个 Webview
    *
-   * 重新注入 HTML 内容，用于刷新界面显示。
-   * 供命令调用，用于刷新界面内容。
+   * 重新注入 HTML 内容，用于刷新界面显示；数据发送改为在 WebviewReady 之后触发。
+   * 供命令调用，用于刷新界面内容。数据优先使用 cachedInitialData，
+   * 若无缓存再调用 TableService 拉取，并在 sendColumnConfig 中增加轻微延迟确保前端已挂载监听。
    *
    * 执行流程：
    * 1. 检查视图是否存在
@@ -271,6 +272,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     if (!this._view) {
       return;
     }
+    this.log.info('重新加载 Webview 内容', 'ReviewViewProvider');
     // 重新注入 HTML
     this._view.webview.html = this.getHtmlForWebview(this._view.webview);
     // 初始数据等待 WebviewReady 后再发送
@@ -304,7 +306,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    */
   private setupMessageHandlers(): void {
     this.log.debug('注册主视图消息处理器', 'ReviewViewProvider');
-    // Webview 挂载完成后再发送初始数据
+    // Webview 挂载完成后再发送初始数据（优先使用缓存）
     this.webViewService.registerMessageHandler(
       EnumMessageType.WebviewReady,
       () => {
@@ -405,26 +407,63 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       },
     );
 
-    // 获取初始数据
+    // 获取初始数据（前端主动请求）：优先使用缓存，连接状态异常时也返回缓存，避免空白页
     this.webViewService.registerMessageHandler(
       EnumMessageType.GetInitialData,
       async message => {
         await this.handleAsyncMessage(message, async () => {
-          this.log.debug('请求初始数据', 'ReviewViewProvider');
+          this.log.info('收到 GetInitialData 请求', 'ReviewViewProvider');
           // 未登录或连接未就绪时，直接返回空数据，避免触发需要鉴权的请求
           const state = this.stateService.getState();
+          this.log.info('GetInitialData 请求状态检查', 'ReviewViewProvider', {
+            loggedIn: state.loggedIn,
+            connectionOk: state.connectionOk,
+            serverUrl: !!this.stateService.getServerUrl(),
+            hasCachedData: !!this.cachedInitialData,
+          });
+
+          // 如果有缓存数据，即使连接状态为 false 也发送缓存数据
+          if (this.cachedInitialData) {
+            this.log.info('有缓存数据，发送缓存数据', 'ReviewViewProvider');
+            const cached = this.cachedInitialData;
+            this.sendColumnConfig(
+              cached.columns,
+              cached.projects,
+              cached.comments,
+              cached.queryContext,
+            );
+            return;
+          }
+
+          // 没有缓存数据且状态检查失败时，发送空数据
           if (
             !state.loggedIn ||
             !state.connectionOk ||
             !this.stateService.getServerUrl()
           ) {
+            this.log.info(
+              '状态检查失败且无缓存数据，发送空数据',
+              'ReviewViewProvider',
+            );
             this.sendColumnConfig([], [], [], null);
             return;
           }
-          // 1) 调用表格服务并行获取列配置与项目
+
+          // 无缓存则从服务器获取
+          this.log.info(
+            '无缓存数据，从服务器获取数据响应 GetInitialData 请求',
+            'ReviewViewProvider',
+          );
           const { columns, projects, comments, queryContext } =
             await this.tableService.loadGetInitialTable();
-          // 2) 将初始化数据发送给 Webview
+          // 缓存数据
+          this.cachedInitialData = {
+            columns,
+            projects,
+            comments,
+            queryContext,
+          };
+          // 将初始化数据发送给 Webview
           this.sendColumnConfig(columns, projects, comments, queryContext);
         });
       },
@@ -786,22 +825,37 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       // 获取新增的评审意见
       const addData = this.stateService.getAddData();
 
-      // Extension → Webview: 通过 TableDataLoaded 事件携带初始化数据
-      this._view.webview.postMessage({
-        type: EnumMessageType.TableDataLoaded,
-        payload: {
-          columns,
-          projects,
-          comments,
-          editData: persistedEditData,
-          queryContext,
-          addData, // 新增：包含新增的评审意见
-        },
+      const payload = {
+        columns,
+        projects,
+        comments,
+        editData: persistedEditData,
+        queryContext,
+        addData, // 新增：包含新增的评审意见
+      };
+
+      this.log.info('发送表格数据到 Webview', 'ReviewViewProvider', {
+        columnsCount: columns?.length || 0,
+        projectsCount: projects?.length || 0,
+        commentsCount: comments?.length || 0,
+        hasEditData: !!persistedEditData,
+        hasAddData: !!addData,
       });
+
+      // 延迟发送数据，确保 WebView 完全加载
+      setTimeout(() => {
+        this._view?.webview.postMessage({
+          type: EnumMessageType.TableDataLoaded,
+          payload,
+        });
+        this.log.info('数据已发送到 Webview', 'ReviewViewProvider');
+      }, 100);
 
       // 直接在扩展端应用装饰（包含新增数据）
       const items = this.buildDecorationItemsIncludingAddData(comments);
       this.updateUnderlineDecorations(items);
+    } else {
+      this.log.warn('Webview 视图不存在，无法发送数据', 'ReviewViewProvider');
     }
   }
 
@@ -854,15 +908,22 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    * 2. 如果已登录，异步获取并发送表格初始化数据
    */
   private sendInitialData(): void {
+    this.log.info('开始发送初始数据', 'ReviewViewProvider');
     // 仅下发鉴权状态；列配置在登录成功后再拉取
     this.sendAuthState();
     const authState = this.stateService.getState();
     if (!authState.loggedIn) {
+      this.log.info('用户未登录，跳过数据发送', 'ReviewViewProvider');
       return;
     }
 
     // 优先使用扩展启动时预取的缓存
     if (this.cachedInitialData) {
+      this.log.info('使用缓存数据发送', 'ReviewViewProvider', {
+        columnsCount: this.cachedInitialData.columns?.length || 0,
+        projectsCount: this.cachedInitialData.projects?.length || 0,
+        commentsCount: this.cachedInitialData.comments?.length || 0,
+      });
       const cached = this.cachedInitialData;
       const columns = cached.columns;
       const projects = cached.projects;
@@ -875,13 +936,24 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     }
 
     // 无缓存则按老流程拉取一次并缓存
+    this.log.info('缓存为空，从服务器获取数据', 'ReviewViewProvider');
     this.tableService
       .loadGetInitialTable()
       .then(({ columns, projects, comments, queryContext }) => {
+        this.log.info('从服务器获取数据成功', 'ReviewViewProvider', {
+          columnsCount: columns?.length || 0,
+          projectsCount: projects?.length || 0,
+          commentsCount: comments?.length || 0,
+        });
         this.cachedInitialData = { columns, projects, comments, queryContext };
         this.sendColumnConfig(columns, projects, comments, queryContext);
         const items = this.buildDecorationItemsIncludingAddData(comments);
         this.updateUnderlineDecorations(items);
+      })
+      .catch(error => {
+        this.log.error('从服务器获取数据失败', 'ReviewViewProvider', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
   }
 

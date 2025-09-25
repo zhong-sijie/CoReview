@@ -12,11 +12,13 @@ import {
   onMessage,
   postMessage,
   removeMessageHandler,
+  reportLog,
 } from '@common/services/vscodeService';
 import { REVIEW_FILTER_OPTIONS } from '@shared/constants';
 import {
   EnumConfirmResult,
   EnumInputType,
+  EnumLogLevel,
   EnumMessageType,
 } from '@shared/enums';
 import type {
@@ -222,6 +224,11 @@ const HomePage = () => {
    */
   const handleTableDataLoaded = useCallback(
     (message: ExtensionMessage<TableDataLoadedPayload>) => {
+      reportLog(EnumLogLevel.INFO, '收到表格数据加载消息', {
+        messageType: message.type,
+        hasPayload: !!message.payload,
+      });
+
       // 从消息中提取数据，使用默认值防止解构失败
       const {
         columns = [],
@@ -231,6 +238,14 @@ const HomePage = () => {
         queryContext,
         addData: initialAddData = {},
       } = message.payload || {};
+
+      reportLog(EnumLogLevel.INFO, '解析后的数据', {
+        columnsCount: columns.length,
+        projectsCount: projects.length,
+        commentsCount: comments.length,
+        hasEditData: !!persistedEditData,
+        hasAddData: !!initialAddData,
+      });
 
       // 更新加载状态，表示数据已加载完成
       setProjectsLoading(false);
@@ -288,7 +303,7 @@ const HomePage = () => {
    * 监听表格数据加载消息
    *
    * 在组件挂载时注册消息处理器，在卸载时移除处理器。
-   * 确保消息监听器的正确注册和清理。
+   * 挂载后延迟 100ms 主动发送 GetInitialData，避免 Webview 刚重载时监听尚未生效导致的数据丢失。
    */
   useEffect(() => {
     // 注册消息处理器，监听表格数据加载完成事件
@@ -298,10 +313,15 @@ const HomePage = () => {
     );
 
     // 在消息监听器注册完成后，主动请求初始数据
-    postMessage(EnumMessageType.GetInitialData, {});
+    // 添加延迟，避免在 WebView 重新加载时重复发送请求或监听未就绪
+    const timeoutId = setTimeout(() => {
+      reportLog(EnumLogLevel.INFO, '发送 GetInitialData 请求', {});
+      postMessage(EnumMessageType.GetInitialData, {});
+    }, 100);
 
-    // 清理函数：组件卸载时移除消息处理器
+    // 清理函数：组件卸载时移除消息处理器和定时器
     return () => {
+      clearTimeout(timeoutId);
       removeMessageHandler<TableDataLoadedPayload>(
         EnumMessageType.TableDataLoaded,
         handleTableDataLoaded,

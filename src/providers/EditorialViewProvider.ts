@@ -333,6 +333,33 @@ export class EditorialViewProvider {
       },
     );
 
+    // Webview 日志上报
+    this.webViewService.registerMessageHandler(
+      EnumMessageType.WebviewLogReport,
+      (message: WebViewMessage<any>) => {
+        try {
+          const payload = message.payload;
+          const ctx = payload?.context || 'editorial-webview';
+          // 仅在 error/warn 时保留，避免与 WebViewService 的通用消息日志重复
+          if (payload?.level === 'error') {
+            this.log.error(
+              payload.message || '前端错误日志',
+              ctx,
+              payload?.data,
+            );
+          } else if (payload?.level === 'warn') {
+            this.log.warn(
+              payload.message || '前端警告日志',
+              ctx,
+              payload?.data,
+            );
+          }
+        } catch {
+          // ignore
+        }
+      },
+    );
+
     // 保存评审意见
     this.webViewService.registerMessageHandler(
       EnumMessageType.SaveReviewComment,
@@ -386,15 +413,34 @@ export class EditorialViewProvider {
   }
 
   /**
+   * 刷新编辑面板数据
+   *
+   * 当主视图数据更新后，可以调用此方法刷新编辑面板的数据。
+   * 主要用于确保编辑面板使用最新的列配置数据（从 StateService 缓存读取），
+   * 并保持当前已选择的代码上下文（selectedTextInfo）不变。
+   *
+   * 注意：此方法会重新发送初始化数据，可能会重置编辑面板的状态。
+   * 只在确实需要更新列配置时才调用。
+   */
+  public refreshEditorialData(): void {
+    if (this._panel) {
+      this.log.info('刷新编辑面板数据', 'EditorialViewProvider');
+      this.sendEditorialInitData();
+    } else {
+      this.log.info('编辑面板未打开，跳过数据刷新', 'EditorialViewProvider');
+    }
+  }
+
+  /**
    * 发送 Editorial 页面初始化数据
    *
    * 向编辑面板发送初始化所需的所有数据，包括认证状态、选中文本信息、Git 信息等。
-   * 这些数据用于前端页面的初始化和显示。
+   * 列配置 columns 来源于 StateService 的缓存（由主视图在初始化或刷新时预拉取并持久化）。
    *
    * 执行流程：
    * 1. 检查面板和选中文本信息是否存在
    * 2. 获取当前认证状态
-   * 3. 从缓存获取列配置
+   * 3. 从 StateService 缓存获取列配置
    * 4. 发送统一的初始化数据到 WebView
    */
   private async sendEditorialInitData(): Promise<void> {

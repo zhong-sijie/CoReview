@@ -68,26 +68,20 @@ export class TableService {
   /**
    * 获取列配置
    *
-   * 优先从缓存获取列配置，如果缓存不存在则从后端获取并持久化。
+   * 优先从缓存获取列配置，如果缓存不存在则从后端获取并持久化到 StateService。
    * 列配置包含表格的显示规则、编辑权限、导出设置等信息。
    *
    * 执行流程：
-   * 1. 优先从 StateService 获取缓存的列配置
-   * 2. 如果缓存存在且有效，直接返回缓存数据
-   * 3. 如果缓存不存在，调用 /client/system/pullColumnDefines 接口
-   * 4. 将获取到的列配置保存到缓存中
-   * 5. 返回列配置数组，失败时返回空数组
+   * 1. 优先从 StateService 获取缓存的列配置（调用方通常已在初始化阶段预拉取）
+   * 2. 如果缓存不存在，调用 /client/system/pullColumnDefines 接口
+   * 3. 将获取到的列配置保存到缓存中
+   * 4. 返回列配置数组，失败时返回空数组
    *
    * @returns 列配置数组，失败时返回空数组
    */
   public async loadGetColumnConfig(): Promise<ColumnConfig[]> {
     // 优先从缓存获取
     const stateService = StateService.getInstance();
-    const cachedColumns = stateService.getColumnConfig();
-
-    if (cachedColumns && cachedColumns.length > 0) {
-      return cachedColumns;
-    }
 
     // 缓存不存在，从后端获取
     try {
@@ -185,7 +179,7 @@ export class TableService {
       };
     }
 
-    // 先获取列配置和项目列表（列配置会自动缓存）
+    // 先获取列配置和项目列表（列配置会自动缓存至 StateService）
     const [columns, projects] = await Promise.all([
       this.loadGetColumnConfig(),
       this.loadGetMyProjects(),

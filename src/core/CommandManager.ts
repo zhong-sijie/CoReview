@@ -209,17 +209,25 @@ export class CommandManager {
    * 处理刷新WebView命令
    *
    * 当用户触发刷新命令时执行此方法。
-   * 重新加载WebView内容，用于更新界面显示。
+   * 重新加载侧边栏 Webview 的 HTML，使其在收到 WebviewReady 后通过缓存快速恢复数据；
+   * 同时若编辑面板已打开，则主动向其重新下发 EditorialInit 数据以更新表单字段。
    *
    * 执行流程：
    * 1. 检查视图提供者是否存在
-   * 2. 如果存在，调用reloadWebview方法重新加载
-   * 3. 如果不存在，显示警告信息
+   * 2. 如果存在，调用 reloadWebview 重新注入 HTML，等待 WebviewReady 后由 ReviewViewProvider 发送数据
+   * 3. 若 Editorial 面板存在，调用 refreshEditorialData 触发重新下发 EditorialInit（读取 StateService 的列配置缓存）
+   * 4. 如果不存在，显示警告信息
    */
   private async handleRefreshWebview(): Promise<void> {
     if (this.viewProvider) {
       this.log.info('触发刷新 Webview 操作', 'CommandManager');
       this.viewProvider.reloadWebview();
+
+      // 同时刷新编辑面板数据，确保使用最新的列配置
+      if (this.editorialProvider) {
+        console.log('触发刷新编辑面板数据', 'CommandManager');
+        this.editorialProvider.refreshEditorialData();
+      }
     } else {
       showWarning('视图尚未就绪，稍后重试');
       this.log.warn('刷新 Webview 被忽略：视图未就绪', 'CommandManager');

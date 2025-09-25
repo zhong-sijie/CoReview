@@ -8,11 +8,13 @@ import { useAsyncAction } from '@common/hooks/useAsyncAction';
 import {
   onMessage,
   removeMessageHandler,
+  reportLog,
 } from '@common/services/vscodeService';
 import {
   EnumCommentOperateType,
   EnumConfirmResult,
   EnumInputType,
+  EnumLogLevel,
   EnumMessageType,
 } from '@shared/enums';
 import type {
@@ -606,6 +608,12 @@ const AddReviewCommentPage = () => {
 
   /**
    * 处理初始化数据
+   *
+   * 接收扩展端通过 EditorialInit 下发的初始化载荷：
+   * - selectedTextInfo: 当前选中文本上下文
+   * - gitInfo/userDetail: 上下游补充信息
+   * - columns: 来自扩展端 StateService 缓存的列配置（由侧边栏初始化/刷新阶段拉取）
+   * 到达后根据 showInAddPage 过滤并重置表单初值。
    */
   const handleEditorialInit = useCallback(
     (message: ExtensionMessage<EditorialInitPayload>) => {
@@ -615,6 +623,13 @@ const AddReviewCommentPage = () => {
         userDetail,
         columns = [],
       } = message.payload || {};
+
+      reportLog(EnumLogLevel.INFO, 'EditorialInit received', {
+        columnsCount: columns.length,
+        hasSelectedText: Boolean(selectedTextInfo),
+        hasGitInfo: Boolean(gitInfo),
+        hasUserDetail: Boolean(userDetail),
+      });
 
       // 保存选中的文本信息（包含fileSnapshot）
       setSelectedTextInfo(selectedTextInfo);
@@ -634,6 +649,10 @@ const AddReviewCommentPage = () => {
           initialData[item.columnCode] = defaultValue;
         });
         reset(initialData);
+
+        reportLog(EnumLogLevel.INFO, 'Editorial form initialized', {
+          visibleColumns: visibleColumns.length,
+        });
       }
     },
     [getFieldDefaultValue, reset],
@@ -675,8 +694,9 @@ const AddReviewCommentPage = () => {
     });
   };
 
-  // 设置消息监听器
+  // 设置消息监听器：挂载时注册 EditorialInit，卸载时移除
   useEffect(() => {
+    reportLog(EnumLogLevel.INFO, 'Register EditorialInit listener', {});
     onMessage<EditorialInitPayload>(
       EnumMessageType.EditorialInit,
       handleEditorialInit,
@@ -687,6 +707,7 @@ const AddReviewCommentPage = () => {
         EnumMessageType.EditorialInit,
         handleEditorialInit,
       );
+      reportLog(EnumLogLevel.INFO, 'Remove EditorialInit listener', {});
     };
   }, [handleEditorialInit]);
 
