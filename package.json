@@ -77,6 +77,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "coreview.toggleLayout",
+        "title": "切换到表格视图",
+        "category": "CoReview",
+        "icon": "$(table)"
+      },
+      {
         "command": "coreview.viewLogs",
         "title": "查看日志",
         "category": "CoReview",
@@ -105,6 +111,11 @@
       "view/title": [
         {
           "command": "coreview.refreshReviews",
+          "when": "view == coreview.mainView && coreview.loggedIn",
+          "group": "navigation"
+        },
+        {
+          "command": "coreview.toggleLayout",
           "when": "view == coreview.mainView && coreview.loggedIn",
           "group": "navigation"
         },

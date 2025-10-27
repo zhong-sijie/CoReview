@@ -125,12 +125,19 @@ export class CommandManager {
       this.handleViewLogs.bind(this),
     );
 
+    // 切换布局命令
+    const toggleLayoutCommand = vscode.commands.registerCommand(
+      EnumCommands.TOGGLE_LAYOUT,
+      this.handleToggleLayout.bind(this),
+    );
+
     context.subscriptions.push(
       logoutCommand,
       openWebPageCommand,
       refreshReviewsCommand,
       addReviewCommentCommand,
       viewLogsCommand,
+      toggleLayoutCommand,
     );
 
     this.log.info('注册 VS Code 命令完成', 'CommandManager', {
@@ -417,6 +424,60 @@ export class CommandManager {
         repositoryUrl: null,
         branchName: null,
       };
+    }
+  }
+
+  /**
+   * 处理布局切换命令
+   *
+   * 在表格视图和卡片视图之间切换，并更新命令的标题和图标。
+   */
+  private async handleToggleLayout(): Promise<void> {
+    try {
+      const currentLayout = this.stateService.getLayout();
+      const newLayout = currentLayout === 'table' ? 'card' : 'table';
+
+      // 更新布局状态
+      this.stateService.setLayout(newLayout);
+
+      // 更新命令的标题和图标
+      await vscode.commands.executeCommand(
+        'setContext',
+        'coreview.currentLayout',
+        newLayout,
+      );
+
+      // 更新命令的标题
+      const newTitle =
+        newLayout === 'table' ? '切换到卡片视图' : '切换到表格视图';
+      const newIcon = newLayout === 'table' ? '$(card)' : '$(table)';
+
+      // 这里无法直接更新命令的标题，但可以通过 context 来控制显示
+      await vscode.commands.executeCommand(
+        'setContext',
+        'coreview.layoutTitle',
+        newTitle,
+      );
+      await vscode.commands.executeCommand(
+        'setContext',
+        'coreview.layoutIcon',
+        newIcon,
+      );
+
+      // 通知 webview 更新布局
+      if (this.viewProvider) {
+        this.viewProvider.updateLayout(newLayout);
+      }
+
+      this.log.info('切换布局模式', 'CommandManager', {
+        from: currentLayout,
+        to: newLayout,
+      });
+    } catch (error) {
+      this.log.error('切换布局失败', 'CommandManager', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      showError('切换布局失败');
     }
   }
 }

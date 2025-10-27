@@ -49,6 +49,8 @@ export enum EnumMessageType {
   EditorialInit = 'editorial-init',
   /** 新增评审意见已保存，通知侧边栏刷新数据 */
   NewReviewCommentAdded = 'new-review-comment-added',
+  /** 布局模式发生变化，通知 webview 更新布局 */
+  LayoutChanged = 'layout-changed',
 }
 
 /**
@@ -72,6 +74,9 @@ export enum EnumCommands {
 
   /** 查看日志文件，打开最近的日志以便排查问题 */
   VIEW_LOGS = 'coreview.viewLogs',
+
+  /** 切换布局模式，在表格视图和卡片视图之间切换 */
+  TOGGLE_LAYOUT = 'coreview.toggleLayout',
 }
 
 /**

@@ -17,6 +17,8 @@ interface Props {
   row: ReviewCommentItem;
   /** 是否处于编辑模式，控制显示态和编辑态的切换 */
   isEditing: boolean;
+  /** 当前布局模式，用于决定文本处理方式 */
+  layout?: 'table' | 'card';
   /** 触发进入编辑模式的回调函数 */
   onStartEdit: () => void;
   /** 触发退出编辑模式的回调函数（不一定提交数据） */
@@ -44,8 +46,16 @@ interface Props {
  */
 const EditableField = (props: Props) => {
   // 解构入参，得到当前上下文信息与事件回调
-  const { title, col, row, isEditing, onStartEdit, onStopEdit, onUpdate } =
-    props;
+  const {
+    title,
+    col,
+    row,
+    isEditing,
+    layout = 'table',
+    onStartEdit,
+    onStopEdit,
+    onUpdate,
+  } = props;
 
   /**
    * 本地输入值状态
@@ -199,6 +209,7 @@ const EditableField = (props: Props) => {
    *
    * 根据列的可编辑配置决定渲染可点击的div还是只读的span。
    * 可编辑的单元格在hover时会显示高亮效果。
+   * 根据布局模式决定文本处理方式：表格使用省略号，卡片使用换行。
    */
   const renderDisplayComponent = () => {
     // 列是否在编辑页允许编辑，且 inputType 是受支持类型
@@ -206,20 +217,31 @@ const EditableField = (props: Props) => {
       col.editableInEditPage &&
       Object.values(EnumInputType).includes(col.inputType);
 
+    // 根据布局模式决定文本样式
+    const textClassName =
+      layout === 'card' ? 'whitespace-pre-wrap break-words' : 'truncate';
+
     if (isEditable) {
       // 可编辑显示：hover 高亮，点击进入编辑
       const displayClassName =
-        'w-full px-2 py-1 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] rounded';
+        'w-full cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] rounded';
 
       return (
         <div className={displayClassName} onClick={onStartEdit}>
-          {value}
+          <div className={textClassName}>{value}</div>
         </div>
       );
     }
 
     // 非可编辑：只读显示
-    return <span className="px-2 py-1 text-sm">{value || ''}</span>;
+    const readOnlyClassName =
+      layout === 'card' ? 'text-sm' : 'px-2 py-1 text-sm';
+
+    return (
+      <span className={readOnlyClassName}>
+        <div className={textClassName}>{value || ''}</div>
+      </span>
+    );
   };
 
   // 根据 isEditing 切换编辑态/显示态渲染

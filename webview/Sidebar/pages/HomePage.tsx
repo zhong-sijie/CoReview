@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Column } from 'react-table';
 import { cloneDeep, isEqual } from 'lodash-es';
 import ConfirmModal from '@common/components/ConfirmModal';
 import { EnumModalAction } from '@common/components/ConfirmModal.types';
-import EditableField from '@common/components/EditableField';
 import HomeFooter from '@common/components/HomeFooter';
 import HomeHeader from '@common/components/HomeHeader';
 import HomeMain from '@common/components/HomeMain';
@@ -46,21 +44,6 @@ import type {
  * - 数据提交和重置操作
  * - 与VS Code扩展端的消息通信
  */
-
-/**
- * accessor 返回值类型定义
- *
- * 用于表格列的数据访问器，返回单元格渲染所需的所有信息。
- * 包含显示文本、列配置和行数据，用于EditableField组件的渲染。
- */
-interface AccessorReturnValue {
-  /** 显示的标题文本 */
-  title: string | number | null | undefined;
-  /** 列配置信息 */
-  col: ColumnConfig;
-  /** 行数据 */
-  row: ReviewCommentItem;
-}
 
 const HomePage = () => {
   /**
@@ -146,6 +129,13 @@ const HomePage = () => {
     rowId: string;
     columnId: string;
   }>();
+
+  /**
+   * 当前布局模式
+   *
+   * 控制数据显示的布局方式，支持表格和卡片两种布局。
+   */
+  const [currentLayout, setCurrentLayout] = useState<'table' | 'card'>('card');
 
   /**
    * 统计已编辑的记录数
@@ -437,57 +427,6 @@ const HomePage = () => {
   }, [originalReviews, editData, addData]);
 
   /**
-   * 获取单元格显示文本
-   *
-   * 优先使用 showName，其次使用 value。
-   * 用于表格单元格的显示和排序。
-   */
-  const getCellTitle = useCallback(
-    (row: ReviewCommentItem, col: ColumnConfig) => {
-      const fv = row.values?.[
-        col.columnCode as keyof ReviewCommentValues
-      ] as any;
-      return (fv?.showName ?? fv?.value) as string | number | undefined;
-    },
-    [],
-  );
-
-  /**
-   * 通用比较器
-   *
-   * 数字优先，其次字符串，用于表格排序。
-   */
-  const compareByTitle = useCallback((a: unknown, b: unknown) => {
-    const av = a === null || a === undefined ? '' : (a as any);
-    const bv = b === null || b === undefined ? '' : (b as any);
-    const an = typeof av === 'number' ? av : Number(av);
-    const bn = typeof bv === 'number' ? bv : Number(bv);
-    const bothNumbers = !Number.isNaN(an) && !Number.isNaN(bn);
-    if (bothNumbers) {
-      return an === bn ? 0 : an > bn ? 1 : -1;
-    }
-    const as = String(av);
-    const bs = String(bv);
-    return as === bs ? 0 : as > bs ? 1 : -1;
-  }, []);
-
-  /**
-   * 基于 accessor 返回值中的 title 进行排序
-   *
-   * 用于 react-table 的排序功能。
-   */
-  const sortByAccessorTitle = useCallback(
-    (rowA: any, rowB: any, columnId: string) => {
-      const a = (rowA.values[columnId] as AccessorReturnValue | undefined)
-        ?.title;
-      const b = (rowB.values[columnId] as AccessorReturnValue | undefined)
-        ?.title;
-      return compareByTitle(a, b);
-    },
-    [compareByTitle],
-  );
-
-  /**
    * 监听评论查询完成
    *
    * 用于重置后刷新列表，更新原始评审数据。
@@ -537,6 +476,32 @@ const HomePage = () => {
       removeMessageHandler<{
         addData: Record<string, ReviewCommentItem>;
       }>(EnumMessageType.NewReviewCommentAdded, handleNewReviewCommentAdded);
+    };
+  }, []);
+
+  /**
+   * 监听布局变化事件
+   *
+   * 当扩展端发送布局变化消息时，更新当前布局模式。
+   */
+  useEffect(() => {
+    const handleLayoutChanged = (
+      message: ExtensionMessage<{ layout: 'table' | 'card' }>,
+    ) => {
+      const { layout } = message.payload || {};
+      if (layout) {
+        setCurrentLayout(layout);
+      }
+    };
+    onMessage<{ layout: 'table' | 'card' }>(
+      EnumMessageType.LayoutChanged,
+      handleLayoutChanged,
+    );
+    return () => {
+      removeMessageHandler<{ layout: 'table' | 'card' }>(
+        EnumMessageType.LayoutChanged,
+        handleLayoutChanged,
+      );
     };
   }, []);
 
@@ -634,71 +599,6 @@ const HomePage = () => {
   }, [modalAction, doReset, doSubmit]);
 
   /**
-   * 将后端列配置转换为 react-table 列
-   *
-   * 添加自定义的单元格渲染逻辑，支持编辑功能。
-   */
-  const toReactTableColumn = useCallback(
-    (col: ColumnConfig): Column<ReviewCommentItem> => {
-      const def: any = {
-        id: col.columnCode,
-        Header: col.showName,
-        accessor: (row: ReviewCommentItem): AccessorReturnValue => ({
-          title: getCellTitle(row, col),
-          col,
-          row,
-        }),
-        Cell: (item: {
-          value: AccessorReturnValue;
-          row: { index: number };
-        }) => {
-          const { title, col, row } = item.value as AccessorReturnValue;
-          const isEditing =
-            editingCell?.rowId === row.id &&
-            editingCell?.columnId === col.columnCode;
-          return (
-            <EditableField
-              title={title || ''}
-              col={col}
-              row={row}
-              isEditing={isEditing}
-              onStartEdit={() => handleStartEdit(row.id, col.columnCode)}
-              onStopEdit={handleStopEdit}
-              onUpdate={updateMyData}
-            />
-          );
-        },
-      };
-      // 插件属性通过断言注入，避免类型不匹配
-      def.sortType = sortByAccessorTitle;
-      return def as unknown as Column<ReviewCommentItem>;
-    },
-    [
-      editingCell,
-      getCellTitle,
-      sortByAccessorTitle,
-      handleStartEdit,
-      handleStopEdit,
-      updateMyData,
-    ],
-  );
-
-  /**
-   * 表格列配置
-   *
-   * 将列配置转换为 react-table 所需的格式，并添加自定义的单元格渲染逻辑。
-   * 使用 useMemo 优化性能，只在依赖项变化时重新计算。
-   */
-  const tableColumns = useMemo<Column<ReviewCommentItem>[]>(
-    () =>
-      columns
-        .filter(col => col.showInIdeaTable)
-        .sort((a, b) => a.sortIndex - b.sortIndex)
-        .map(toReactTableColumn),
-    [columns, toReactTableColumn],
-  );
-
-  /**
    * 头部状态统一处理
    *
    * 处理项目选择和状态筛选的变更，同步到扩展端并重新查询数据。
@@ -733,7 +633,10 @@ const HomePage = () => {
    * 包含头部（项目选择和筛选）、主体（数据表格）和底部组件。
    */
   return (
-    <div className="flex h-screen w-full min-w-[600px] flex-col overflow-hidden">
+    <div
+      className={`flex h-screen w-full flex-col overflow-hidden ${
+        currentLayout === 'table' ? 'min-w-[600px]' : ''
+      }`}>
       {/* 头部组件 */}
       <HomeHeader
         projects={projects}
@@ -750,9 +653,14 @@ const HomePage = () => {
       />
       {/* 主体组件 */}
       <HomeMain
-        columns={tableColumns}
+        columns={columns}
         dataSource={mergedReviews}
         loading={queryingCommentsLoading}
+        layout={currentLayout}
+        editingCell={editingCell}
+        onStartEdit={handleStartEdit}
+        onStopEdit={handleStopEdit}
+        onUpdate={updateMyData}
       />
       {/* 底部组件 */}
       <HomeFooter />

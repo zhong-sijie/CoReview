@@ -912,6 +912,20 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
     this.log.info('开始发送初始数据', 'ReviewViewProvider');
     // 仅下发鉴权状态；列配置在登录成功后再拉取
     this.sendAuthState();
+
+    // 发送当前布局状态
+    const currentLayout = this.stateService.getLayout();
+    if (this._view) {
+      this._view.webview.postMessage({
+        type: EnumMessageType.LayoutChanged,
+        payload: {
+          layout: currentLayout,
+        },
+      });
+      this.log.info('发送初始布局状态', 'ReviewViewProvider', {
+        layout: currentLayout,
+      });
+    }
     const authState = this.stateService.getState();
     if (!authState.loggedIn) {
       this.log.info('用户未登录，跳过数据发送', 'ReviewViewProvider');
@@ -1283,6 +1297,29 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       }
     } catch {
       // ignore top-level failure in applying decorations
+    }
+  }
+
+  /**
+   * 更新布局模式
+   *
+   * 通知 webview 更新布局模式。
+   *
+   * @param layout 新的布局模式
+   */
+  public updateLayout(layout: 'table' | 'card'): void {
+    if (this._view) {
+      this._view.webview.postMessage({
+        type: EnumMessageType.LayoutChanged,
+        payload: { layout },
+      });
+      this.log.info('发送布局更新消息', 'ReviewViewProvider', { layout });
+    } else {
+      this.log.warn(
+        '无法发送布局更新消息：Webview 未初始化',
+        'ReviewViewProvider',
+        { layout },
+      );
     }
   }
 }

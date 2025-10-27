@@ -32,6 +32,8 @@ export interface AppState {
   columnConfig: ColumnConfig[] | null;
   /** 新增的评审意见临时存储 */
   addData: Record<string, ReviewCommentItem> | null;
+  /** 当前布局模式：'table' | 'card' */
+  layout: 'table' | 'card';
 }
 
 /**
@@ -83,6 +85,8 @@ export class StateService {
     ADD_DATA: 'coreview.addData',
     /** 每日提醒（初始化/11点/登录触发）的最后推送日期（YYYY-MM-DD，本地时区） */
     LAST_DAILY_REMINDER_DATE: 'coreview.lastDailyReminderDate',
+    /** 当前布局模式 */
+    LAYOUT: 'coreview.layout',
   } as const;
 
   /** 当前应用状态，包含所有运行时状态信息 */
@@ -103,6 +107,8 @@ export class StateService {
     columnConfig: null,
     /** 初始无新增评审意见 */
     addData: null,
+    /** 默认使用卡片布局 */
+    layout: 'card',
   };
 
   /** 状态变更事件监听器列表，用于通知状态变化 */
@@ -224,6 +230,14 @@ export class StateService {
     );
     if (savedAddData) {
       this.state.addData = savedAddData;
+    }
+
+    // 加载布局模式
+    const savedLayout = this.memento.get<'table' | 'card'>(
+      StateService.STORAGE_KEYS.LAYOUT,
+    );
+    if (savedLayout === 'table' || savedLayout === 'card') {
+      this.state.layout = savedLayout;
     }
 
     this.log.debug('已从存储加载状态', 'StateService', {
@@ -432,6 +446,7 @@ export class StateService {
       queryContext: null,
       columnConfig: null,
       addData: null,
+      layout: 'card',
     };
     // 清除请求客户端的 baseURL
     setRequestBaseUrl(null);
@@ -699,5 +714,32 @@ export class StateService {
       id,
       remainingCount: getObjectKeyCount(this.state.addData),
     });
+  }
+
+  /**
+   * 设置布局模式
+   *
+   * 更新当前布局模式并持久化到存储中。
+   *
+   * @param layout 布局模式：'table' | 'card'
+   */
+  public setLayout(layout: 'table' | 'card'): void {
+    this.state.layout = layout;
+
+    if (this.memento) {
+      this.memento.update(StateService.STORAGE_KEYS.LAYOUT, layout);
+    }
+
+    this.notifyStateChange();
+    this.log.info('更新布局模式', 'StateService', { layout });
+  }
+
+  /**
+   * 获取当前布局模式
+   *
+   * @returns 当前布局模式
+   */
+  public getLayout(): 'table' | 'card' {
+    return this.state.layout;
   }
 }

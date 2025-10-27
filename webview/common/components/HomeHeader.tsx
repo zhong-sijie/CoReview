@@ -141,81 +141,79 @@ const HomeHeader = (props: Props) => {
 
   return (
     <header className="flex flex-col gap-3 border-b border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] px-4 py-3">
-      {/* 第一行：项目和操作 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <label className="text-sm opacity-80">项目：</label>
-          <Select
-            isLoading={projectsLoading}
-            options={options}
-            value={value.project}
-            styles={selectStyles}
-            placeholder="选择项目"
-            isClearable={true}
-            className="w-48"
-            onChange={option => {
-              const next = (option as ProjectSelectOption | null) || undefined;
-              onChange({ project: next, statusValue: value.statusValue });
-            }}
-          />
-        </div>
-        {(!!editedCount || !!addedCount) && (
-          <div className="flex items-center gap-4">
-            {/* 编辑统计信息组 */}
-            <div className="flex items-center gap-2 rounded-md px-3 py-1.5">
-              {!!editedCount && (
-                <span className="flex items-center gap-1 text-xs">
-                  <span className="bg-orange-4/60 h-2 w-2 rounded-full"></span>
-                  已编辑:{' '}
-                  <span className="text-orange-7 font-semibold">
-                    {editedCount}
-                  </span>
+      {/* 第一行：编辑统计信息和操作按钮 */}
+      {(!!editedCount || !!addedCount) && (
+        <div className="flex items-center justify-between">
+          {/* 编辑统计信息组 */}
+          <div className="flex items-center gap-2 rounded-md px-3 py-1.5">
+            {!!editedCount && (
+              <span className="flex items-center gap-1 text-xs">
+                <span className="bg-orange-4/60 h-2 w-2 rounded-full"></span>
+                已编辑:{' '}
+                <span className="text-orange-7 font-semibold">
+                  {editedCount}
                 </span>
-              )}
-              {!!editedCount && !!addedCount && (
-                <span className="text-xs opacity-60">|</span>
-              )}
-              {!!addedCount && (
-                <span className="flex items-center gap-1 text-xs">
-                  <span className="bg-green-6/60 h-2 w-2 rounded-full"></span>
-                  新增:{' '}
-                  <span className="text-green-7 font-semibold">
-                    {addedCount}
-                  </span>
-                </span>
-              )}
-            </div>
-
-            {/* 操作按钮组 */}
-            <div className="flex items-center gap-2">
-              <button
-                className="bg-grey-13 text-grey-5 hover:bg-grey-12 active:bg-grey-11 flex items-center gap-1.5 rounded-md border border-[var(--vscode-panel-border)] px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
-                onClick={onReset}
-                disabled={queryingCommentsLoading}>
-                <span>↺</span>
-                重置
-              </button>
-              <button
-                className="bg-blue-6/20 text-blue-9 hover:bg-blue-6/30 flex items-center gap-1.5 rounded-md border border-[var(--vscode-panel-border)] px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
-                onClick={onSubmit}
-                disabled={!!submittingLoading || !!queryingCommentsLoading}>
-                {submittingLoading ? (
-                  <>
-                    <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"></span>
-                    提交中...
-                  </>
-                ) : (
-                  <>
-                    <span>✓</span>
-                    提交
-                  </>
-                )}
-              </button>
-            </div>
+              </span>
+            )}
+            {!!editedCount && !!addedCount && (
+              <span className="text-xs opacity-60">|</span>
+            )}
+            {!!addedCount && (
+              <span className="flex items-center gap-1 text-xs">
+                <span className="bg-green-6/60 h-2 w-2 rounded-full"></span>
+                新增:{' '}
+                <span className="text-green-7 font-semibold">{addedCount}</span>
+              </span>
+            )}
           </div>
-        )}
+
+          {/* 操作按钮组 */}
+          <div className="flex items-center gap-2">
+            <button
+              className="bg-grey-13 text-grey-5 hover:bg-grey-12 active:bg-grey-11 flex items-center gap-1.5 rounded-md border border-[var(--vscode-panel-border)] px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
+              onClick={onReset}
+              disabled={queryingCommentsLoading}>
+              <span>↺</span>
+              重置
+            </button>
+            <button
+              className="bg-blue-6/20 text-blue-9 hover:bg-blue-6/30 flex items-center gap-1.5 rounded-md border border-[var(--vscode-panel-border)] px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60"
+              onClick={onSubmit}
+              disabled={!!submittingLoading || !!queryingCommentsLoading}>
+              {submittingLoading ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"></span>
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <span>✓</span>
+                  提交
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 第二行：项目选择 */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm opacity-80">项目：</label>
+        <Select
+          isLoading={projectsLoading}
+          options={options}
+          value={value.project}
+          styles={selectStyles}
+          placeholder="选择项目"
+          isClearable={true}
+          className="w-48"
+          onChange={option => {
+            const next = (option as ProjectSelectOption | null) || undefined;
+            onChange({ project: next, statusValue: value.statusValue });
+          }}
+        />
       </div>
-      {/* 第二行：状态筛选 */}
+      {/* 第三行：状态筛选 */}
       <div className="flex items-center gap-2">
         <label className="text-sm opacity-80">状态：</label>
         <Select
