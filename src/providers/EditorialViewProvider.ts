@@ -5,6 +5,7 @@ import {
   UserDetail,
   WebViewMessage,
 } from '../../shared/types';
+import { normalizeFilePath, toWorkspaceRelativePath } from '../../shared/utils';
 import { LogService } from '../services/LogService';
 import { StateService } from '../services/StateService';
 import { WebViewService } from '../services/WebViewService';
@@ -146,15 +147,16 @@ export class EditorialViewProvider {
    *
    * 如果无法转换为相对路径，则返回原始绝对路径。
    * 主要用于在界面上显示更友好的文件路径。
+   * 统一使用正斜杠格式，提供一致的跨平台体验。
    *
    * 执行流程：
    * 1. 获取当前工作区文件夹列表
    * 2. 查找包含当前文件的工作区
-   * 3. 计算相对路径并处理路径分隔符
+   * 3. 计算相对路径（自动使用正斜杠格式）
    * 4. 如果无法转换，返回原始路径
    *
    * @param absolutePath 文件的绝对路径
-   * @returns 工作区相对路径或原始绝对路径
+   * @returns 工作区相对路径或原始绝对路径（统一使用正斜杠）
    */
   private toWorkspaceRelativePath(absolutePath: string): string {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -163,15 +165,15 @@ export class EditorialViewProvider {
         absolutePath.startsWith(folder.uri.fsPath),
       );
       if (workspaceFolder) {
-        const relativePath = absolutePath.substring(
-          workspaceFolder.uri.fsPath.length,
+        // 使用共享工具函数处理路径转换（自动使用正斜杠格式）
+        return toWorkspaceRelativePath(
+          absolutePath,
+          workspaceFolder.uri.fsPath,
         );
-        return relativePath.startsWith('/') || relativePath.startsWith('\\')
-          ? relativePath.substring(1)
-          : relativePath;
       }
     }
-    return absolutePath;
+    // 返回标准化后的绝对路径（自动使用正斜杠格式）
+    return normalizeFilePath(absolutePath);
   }
 
   /**

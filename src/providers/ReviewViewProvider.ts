@@ -21,6 +21,7 @@ import {
   WebViewMessage,
   WebviewLogPayload,
 } from '../../shared/types';
+import { normalizeFilePath } from '../../shared/utils';
 import { AuthService } from '../services/AuthService';
 import { LogService } from '../services/LogService';
 import { ReminderService } from '../services/ReminderService';
@@ -962,6 +963,7 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
    *
    * 自动处理相对路径和绝对路径，尝试多种可能的路径组合来找到文件。
    * 支持工作区相对路径、绝对路径等多种格式。
+   * 统一使用正斜杠格式，确保跨平台兼容性。
    *
    * @param filePath 文件路径，可以是相对路径或绝对路径
    * @returns 成功打开的文件文档对象
@@ -970,6 +972,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
   private async openFileWithFallback(
     filePath: string,
   ): Promise<vscode.TextDocument> {
+    // 首先标准化文件路径，统一使用正斜杠格式
+    const normalizedFilePath = normalizeFilePath(filePath);
+
     if (
       vscode.workspace.workspaceFolders &&
       vscode.workspace.workspaceFolders.length > 0
@@ -979,9 +984,9 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
 
       // 尝试多种可能的路径组合
       const possiblePaths = [
-        filePath, // 原始路径
-        path.join(workspaceRoot, filePath), // 工作区根目录 + 相对路径
-        path.resolve(workspaceRoot, filePath), // 解析后的绝对路径
+        normalizedFilePath, // 标准化后的原始路径
+        path.join(workspaceRoot, normalizedFilePath), // 工作区根目录 + 相对路径
+        path.resolve(workspaceRoot, normalizedFilePath), // 解析后的绝对路径
       ];
 
       // 尝试打开文件，直到成功
@@ -998,8 +1003,8 @@ export class ReviewViewProvider implements vscode.WebviewViewProvider {
       // 所有路径都失败
       throw new Error(`无法找到文件，尝试的路径: ${possiblePaths.join(', ')}`);
     } else {
-      // 没有工作区，直接尝试原始路径
-      const uri = vscode.Uri.file(filePath);
+      // 没有工作区，直接尝试标准化后的路径
+      const uri = vscode.Uri.file(normalizedFilePath);
       return await vscode.workspace.openTextDocument(uri);
     }
   }

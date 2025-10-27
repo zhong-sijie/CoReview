@@ -2,6 +2,7 @@ import * as childProcess from 'child_process';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { EnumCommands } from '../../shared/enums';
+import { normalizeFilePath } from '../../shared/utils';
 import { EditorialViewProvider } from '../providers/EditorialViewProvider';
 import { ReviewViewProvider } from '../providers/ReviewViewProvider';
 import { AuthService } from '../services/AuthService';
@@ -367,9 +368,14 @@ export class CommandManager {
     branchName: string | null;
   }> {
     try {
-      this.log.debug('开始解析 Git 信息', 'CommandManager', { filePath });
+      // 标准化文件路径，统一使用正斜杠格式
+      const normalizedFilePath = normalizeFilePath(filePath);
+      this.log.debug('开始解析 Git 信息', 'CommandManager', {
+        originalPath: filePath,
+        normalizedPath: normalizedFilePath,
+      });
       // 获取文件所在目录
-      const fileDir = path.dirname(filePath);
+      const fileDir = path.dirname(normalizedFilePath);
 
       // 获取 git 仓库根目录
       const gitRoot = childProcess
