@@ -2,7 +2,7 @@
   "name": "CoReview",
   "displayName": "CoReview",
   "description": "团队协作的代码审查工具",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "zhongsijie",
   "license": "MIT",
   "author": {
