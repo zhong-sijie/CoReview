@@ -121,6 +121,7 @@
         },
         {
           "submenu": "coreview.moreActions",
+          "when": "view == coreview.mainView",
           "group": "navigation@1"
         }
       ],
