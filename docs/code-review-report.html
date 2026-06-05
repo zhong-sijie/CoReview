@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CoReview 深度代码审查报告</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --critical: #ff6b6b;
+      --high: #ff9f43;
+      --medium: #ffd93d;
+      --low: #6bcb77;
+      --accent: #58a6ff;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+    h1 { font-size: 1.75rem; margin: 0 0 8px; }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+    .meta a { color: var(--accent); }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    section h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .stat {
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .stat:hover, .stat.active { border-color: var(--accent); }
+    .stat-critical { background: rgba(255,107,107,0.15); color: var(--critical); }
+    .stat-high { background: rgba(255,159,67,0.15); color: var(--high); }
+    .stat-medium { background: rgba(255,217,61,0.12); color: var(--medium); }
+    .stat-low { background: rgba(107,203,119,0.15); color: var(--low); }
+    .stat-all { background: var(--surface2); color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; }
+    code, .loc { font-family: Consolas, "Courier New", monospace; font-size: 0.82rem; color: #79c0ff; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .filter-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+    }
+    .filter-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+    .issue {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+      border-left: 4px solid var(--muted);
+    }
+    .issue[data-severity="critical"] { border-left-color: var(--critical); }
+    .issue[data-severity="high"] { border-left-color: var(--high); }
+    .issue[data-severity="medium"] { border-left-color: var(--medium); }
+    .issue[data-severity="low"] { border-left-color: var(--low); }
+    .issue-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge-critical { background: var(--critical); color: #111; }
+    .badge-high { background: var(--high); color: #111; }
+    .badge-medium { background: var(--medium); color: #111; }
+    .badge-low { background: var(--low); color: #111; }
+    .cat { color: var(--muted); font-size: 0.82rem; }
+    .issue h3 { margin: 0; font-size: 1rem; flex: 1; min-width: 200px; }
+    .desc, .rec { font-size: 0.9rem; margin: 8px 0; }
+    .rec { color: #c9d1d9; background: rgba(88,166,255,0.08); padding: 10px; border-radius: 6px; }
+    .rec strong { color: var(--accent); }
+    .actions {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .actions label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
+    .fix-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .fix-btns button {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .fix-btns button.selected-yes { background: #238636; border-color: #238636; }
+    .fix-btns button.selected-no { background: #da3633; border-color: #da3633; }
+    .fix-btns button.selected-defer { background: #9e6a03; border-color: #9e6a03; }
+    textarea.note {
+      width: 100%;
+      min-height: 60px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 10px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      resize: vertical;
+    }
+    .toolbar {
+      position: sticky;
+      bottom: 0;
+      background: rgba(15,20,25,0.95);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid var(--border);
+      padding: 14px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .toolbar button {
+      padding: 10px 24px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-copy { background: var(--accent); color: #000; }
+    .btn-reset { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #238636;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; }
+    ul.compact { margin: 8px 0; padding-left: 20px; }
+    ul.compact li { margin: 4px 0; font-size: 0.88rem; }
+    .hidden { display: none !important; }
+    .notice {
+      background: rgba(255,159,67,0.12);
+      border: 1px solid rgba(255,159,67,0.3);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CoReview 深度代码审查报告</h1>
+    <p class="meta">
+      生成时间：2025-06-05 · 迭代范围：v0.0.4 → v0.0.11（最近 8 次功能 commit）<br />
+      审查方式：分模块人工审查（subagent 因配额不可用，已按 src / webview / shared / 迭代 diff 分文件完成）<br />
+      仓库：<code>c:\AIS\Code\CoReview</code>
+    </p>
+
+    <div class="notice">
+      ⚠ Subagent 并行审查未能执行（Cursor 用量限制）。本报告由主 Agent 对
+      <code>src/</code>、<code>webview/</code>、<code>shared/</code> 及
+      <code>git diff HEAD~8..HEAD</code> 进行分文件深度审查后汇总。
+    </div>
+
+    <section id="apis">
+      <h2>本迭代涉及的全部后端接口</h2>
+      <table>
+        <thead>
+          <tr><th>方法</th><th>路径</th><th>调用位置</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>GET</td>
+            <td><code>{serverUrl}/client/system/checkConnection</code></td>
+            <td><code>AuthService.loadTestConnection</code></td>
+            <td>连接测试，skipAuth，使用完整 URL</td>
+          </tr>
+          <tr>
+            <td>POST</td>
+            <td><code>/client/system/checkAuth</code></td>
+            <td><code>AuthService.loadLogin</code></td>
+            <td>登录鉴权，密码 MD5，skipAuth</td>
+          </tr>
+          <tr>
+            <td>GET</td>
+            <td><code>/client/system/pullColumnDefines</code></td>
+            <td><code>TableService.loadGetColumnConfig</code></td>
+            <td>拉取列配置</td>
+          </tr>
+          <tr>
+            <td>GET</td>
+            <td><code>/client/project/getMyProjects</code></td>
+            <td><code>TableService.loadGetMyProjects</code></td>
+            <td>用户项目列表</td>
+          </tr>
+          <tr>
+            <td>POST</td>
+            <td><code>/client/comment/queryList</code></td>
+            <td><code>TableService.loadQueryComments</code>、<code>loadPendingCount</code>、<code>ReminderService</code></td>
+            <td>查询评审列表（含待我确认统计）</td>
+          </tr>
+          <tr>
+            <td>POST</td>
+            <td><code>/client/comment/commitComments</code></td>
+            <td><code>TableService.loadCommitComments</code></td>
+            <td>批量提交评审修改</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="meta" style="margin-top:12px">
+        本迭代改动文件：<code>ReminderService</code>（新增 queryList）、布局切换、路径标准化、Webview 刷新、菜单条件显示等均间接依赖上述接口。
+      </p>
+    </section>
+
+    <section id="summary">
+      <h2>问题概览</h2>
+      <div class="stats" id="stats"></div>
+      <div class="filters" id="category-filters"></div>
+    </section>
+
+    <section id="issues-section">
+      <h2>问题清单（按严重性排序）</h2>
+      <div id="issues"></div>
+    </section>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn-copy" id="btn-copy">复制修复清单到剪贴板</button>
+    <button class="btn-reset" id="btn-reset">重置所有填写</button>
+  </div>
+  <div class="toast" id="toast">已复制到剪贴板</div>
+
+  <script>
+    const ISSUES = [
+      {
+        id: "CRIT-001",
+        severity: "critical",
+        category: "风险",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "493-530",
+        title: "提交失败仍向 Webview 返回 success: true",
+        description: "SubmitData 处理器在 loadCommitComments 返回 success:false 时仅 showError，未 throw。handleAsyncMessage 因此始终回调 success:true，前端误以为提交成功。",
+        recommendation: "当 result.success 为 false 时 throw new Error(result.errDesc)；或在 handleAsyncMessage 中支持显式失败回调。前端 doSubmit 必须检查 AsyncResult.success 后再清空 editData/addData。"
+      },
+      {
+        id: "CRIT-002",
+        severity: "critical",
+        category: "风险",
+        file: "webview/Sidebar/pages/HomePage.tsx",
+        line: "563-585",
+        title: "提交失败后仍清空本地编辑数据",
+        description: "doSubmit 在 runSubmit 完成后无条件清空 editData/addData 并 postMessage 空数组，未检查返回的 success 字段，与 CRIT-001 叠加会导致用户丢失未同步的编辑。",
+        recommendation: "仅在 result.success === true 时清空本地与持久化数据；失败时保留数据并提示用户重试。"
+      },
+      {
+        id: "CRIT-003",
+        severity: "critical",
+        category: "风险",
+        file: "src/services/StateService.ts",
+        line: "69-75, 389-396",
+        title: "MD5 密码持久化于 VS Code globalState",
+        description: "账号与 MD5 密码明文写入 globalState，且每次请求通过 HTTP Header（account/pwd）发送。扩展被攻破或日志泄露时凭据暴露。",
+        recommendation: "改用 VS Code SecretStorage 存储凭据；评估是否改用 Token/OAuth；request 拦截器从 SecretStorage 读取；日志中已脱敏 pwd 需保持。"
+      },
+      {
+        id: "HIGH-001",
+        severity: "high",
+        category: "执行顺序",
+        file: "src/services/StateService.ts + ReviewViewProvider.ts",
+        line: "175-201, 196-202",
+        title: "重启后 connectionOk 未恢复导致预取与装饰失效",
+        description: "loadStateFromStorage 凭凭据恢复 loggedIn=true，但 connectionOk 保持 false。prefetchInitialDataAndApplyDecorations 要求 connectionOk，导致扩展重启后代码下划线/Hover 不加载，尽管用户已登录。",
+        recommendation: "重启时若 loggedIn 且 serverUrl 存在，将 connectionOk 设为 true；或 prefetch 仅检查 loggedIn+serverUrl；连接失败时再置 false。"
+      },
+      {
+        id: "HIGH-002",
+        severity: "high",
+        category: "风险",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "426-437",
+        title: "登出/断连后仍可能下发 cachedInitialData",
+        description: "GetInitialData 在有 cachedInitialData 时跳过 loggedIn/connectionOk 检查直接下发。loadLogout 未清除 cachedInitialData，可能向未授权 Webview 展示旧评审数据。",
+        recommendation: "登出时清空 cachedInitialData；GetInitialData 下发缓存前必须校验 loggedIn；或缓存带 TTL/版本号。"
+      },
+      {
+        id: "HIGH-003",
+        severity: "high",
+        category: "可读性",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "1-1325",
+        title: "ReviewViewProvider 职责过重（1325 行）",
+        description: "单文件承担消息路由、表格数据、文件跳转、装饰渲染、缓存管理、鉴权流程，违反单一职责，难以测试与维护。",
+        recommendation: "拆分为 DecorationService、ReviewMessageHandler、FileNavigationService；Provider 仅做编排。"
+      },
+      {
+        id: "HIGH-004",
+        severity: "high",
+        category: "执行顺序",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "145-157, 911-972",
+        title: "启动时重复拉取初始数据",
+        description: "构造函数 prefetchInitialDataAndApplyDecorations 与 WebviewReady→sendInitialData 可能各拉一次 loadGetInitialTable，浪费请求且存在竞态覆盖 cachedInitialData。",
+        recommendation: "统一单一数据加载入口；prefetch 仅写缓存，WebviewReady 只读缓存；或加 in-flight Promise 去重。"
+      },
+      {
+        id: "HIGH-005",
+        severity: "high",
+        category: "冗余",
+        file: "src/services/ReminderService.ts",
+        line: "136-151 vs 183-193",
+        title: "每日提醒与登录提醒前置条件不一致",
+        description: "maybeNotifyDaily 注释要求 loggedIn+connectionOk+serverUrl，但代码仅检查 loggedIn。notifyOnLogin 检查三者。行为与文档不一致，可能在断连时仍发起 queryList。",
+        recommendation: "抽取 canNotify() 统一校验 loggedIn && serverUrl；connectionOk 是否必需与产品确认后统一。"
+      },
+      {
+        id: "HIGH-006",
+        severity: "high",
+        category: "规范",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "385",
+        title: "错误 API 路径注释（文档与代码不符）",
+        description: "登录处理器注释写「调用 /server/login/doLogin」，实际为 AuthService.loadLogin → /client/system/checkAuth，误导后续维护。",
+        recommendation: "修正注释为 checkAuth；建立 API 文档与代码单一来源（constants 或 openapi）。"
+      },
+      {
+        id: "MED-001",
+        severity: "medium",
+        category: "过度设计",
+        file: "src/services/WebViewServiceFactory.ts",
+        line: "1-79",
+        title: "WebViewServiceFactory 对仅 2 个 Provider 过度抽象",
+        description: "工厂 + Map 管理 2 个实例，getService/clearService 几乎未使用；ReviewViewProvider 仍自行注册 webviewView 消息，与 WebViewService 面板路径双轨。",
+        recommendation: "简化为 Provider 内 new WebViewService(id)；或统一所有 Webview 消息经 WebViewService 分发。"
+      },
+      {
+        id: "MED-002",
+        severity: "medium",
+        category: "过度设计",
+        file: "src/utils/request.ts",
+        line: "316-457",
+        title: "request 封装导出大量未使用快捷方法",
+        description: "get/post/put/patch/del/upload/download 在项目中未被调用，仅 requestApi 在用，增加维护面。",
+        recommendation: "删除未使用导出，或按需保留；遵循 YAGNI。"
+      },
+      {
+        id: "MED-003",
+        severity: "medium",
+        category: "冗余",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "362-368",
+        title: "连接测试重复设置 connectionOk",
+        description: "AuthService.loadTestConnection 已 setConnectionOk(true)，TestConnection 处理器再次 setConnectionOk(true) 并 setLoggedIn(false)。",
+        recommendation: "TestConnection 处理器仅 sendAuthState，状态变更集中在 AuthService。"
+      },
+      {
+        id: "MED-004",
+        severity: "medium",
+        category: "冗余",
+        file: "src/services/TableService.ts",
+        line: "82-84",
+        title: "loadGetColumnConfig 注释与实现不符",
+        description: "注释写「优先从缓存获取」，实现每次都请求 pullColumnDefines，未读 StateService 缓存。",
+        recommendation: "先 getColumnConfig()，有缓存且未过期则返回；否则拉取并 setColumnConfig。"
+      },
+      {
+        id: "MED-005",
+        severity: "medium",
+        category: "冗余",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "1035-1144",
+        title: "行号解析逻辑重复",
+        description: "jumpToLineRange 与 parseRangesForDocument 含几乎相同的正则解析逻辑，约 80 行重复。",
+        recommendation: "提取 parseLineRangeToRanges(doc, lineRange): Range[] 共用。"
+      },
+      {
+        id: "MED-006",
+        severity: "medium",
+        category: "执行顺序",
+        file: "src/providers/ReviewViewProvider.ts + webview/Sidebar/pages/HomePage.tsx",
+        line: "846-853, 307-310",
+        title: "双端 setTimeout(100ms) 竞态补丁",
+        description: "sendColumnConfig 与 HomePage GetInitialData 均延迟 100ms，用魔法数字规避监听未就绪，脆弱且可能双重请求。",
+        recommendation: "仅依赖 WebviewReady 事件链；扩展端在 Ready 后立即下发；移除前端主动 GetInitialData 或改为幂等。"
+      },
+      {
+        id: "MED-007",
+        severity: "medium",
+        category: "执行顺序",
+        file: "src/providers/EditorialViewProvider.ts",
+        line: "269-274",
+        title: "复用 Editorial 面板时不刷新选中上下文",
+        description: "面板已存在时仅 reveal()，不更新 selectedTextInfo 也不 sendEditorialInitData，Alt+A 选中新代码后表单仍为旧内容。",
+        recommendation: "复用面板时也更新 selectedTextInfo 并调用 sendEditorialInitData()。"
+      },
+      {
+        id: "MED-008",
+        severity: "medium",
+        category: "风险",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "178-186",
+        title: "编辑器监听器未注册到 context.subscriptions",
+        description: "onDidChangeActiveTextEditor/onDidChangeVisibleTextEditors 在构造函数注册，扩展 deactivate 时未 dispose，存在泄漏风险。",
+        recommendation: "在 activate 时注册并 push 到 context.subscriptions。"
+      },
+      {
+        id: "MED-009",
+        severity: "medium",
+        category: "规范",
+        file: "src/core/CommandManager.ts",
+        line: "236",
+        title: "使用 console.log 而非 LogService",
+        description: "handleRefreshWebview 中使用 console.log，与项目统一 winston 日志规范不一致。",
+        recommendation: "改为 this.log.debug(...)。"
+      },
+      {
+        id: "MED-010",
+        severity: "medium",
+        category: "过度设计",
+        file: "src/core/CommandManager.ts",
+        line: "388-408",
+        title: "同步 execSync 阻塞扩展主机",
+        description: "getGitInfo 连续 3 次 execSync 获取 git 信息，大仓库或慢磁盘会阻塞 UI。",
+        recommendation: "改用 execFile 异步 + Promise；或缓存 gitRoot；或使用 vscode.git 扩展 API。"
+      },
+      {
+        id: "MED-011",
+        severity: "medium",
+        category: "冗余",
+        file: "CommandManager + EditorialViewProvider",
+        line: "289-319 vs 101-143",
+        title: "多段选中文本处理逻辑重复",
+        description: "CommandManager.handleAddReviewComment 与 EditorialViewProvider.computeProcessedText 重复实现多选排序合并。",
+        recommendation: "提取 shared/utils selectionText.ts 单一实现。"
+      },
+      {
+        id: "MED-012",
+        severity: "medium",
+        category: "规范",
+        file: "src/core/CommandManager.ts",
+        line: "444-465",
+        title: "布局切换 setContext 未在 package.json 使用",
+        description: "设置 coreview.layoutTitle/layoutIcon/currentLayout，但 menus 仍用静态 title/icon，切换命令 UI 不更新。",
+        recommendation: "在 package.json 用 ${coreview.layoutTitle} 动态标题，或删除无效 setContext。"
+      },
+      {
+        id: "MED-013",
+        severity: "medium",
+        category: "可读性",
+        file: "webview/Sidebar/pages/HomePage.tsx",
+        line: "138",
+        title: "布局初始状态与 StateService 不同步",
+        description: "HomePage 默认 currentLayout='card'，需等 LayoutChanged 才同步；首屏可能闪 wrong layout。",
+        recommendation: "TableDataLoaded 或 AuthState 携带 layout；或 WebviewReady 后立即请求 layout。"
+      },
+      {
+        id: "MED-014",
+        severity: "medium",
+        category: "风险",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "515-526",
+        title: "提交失败后仍刷新列表",
+        description: "SubmitData 在 result.success 为 false 时仍 loadQueryComments 并 CommentsLoaded，可能掩盖部分失败状态。",
+        recommendation: "仅 success 时刷新；失败时返回 failedIds 给前端展示。"
+      },
+      {
+        id: "MED-015",
+        severity: "medium",
+        category: "规范",
+        file: "package.json",
+        line: "205",
+        title: "@types/winston 放在 dependencies",
+        description: "类型包应位于 devDependencies，增加生产依赖体积。",
+        recommendation: "移至 devDependencies。"
+      },
+      {
+        id: "LOW-001",
+        severity: "low",
+        category: "规范",
+        file: "全项目",
+        line: "-",
+        title: "JSDoc 注释过度冗长",
+        description: "几乎每个函数含 10-20 行「执行流程」注释，信息重复代码本身，降低 skim 效率，与 README 重复。",
+        recommendation: "保留公共 API 与 non-obvious 逻辑注释；删除逐步复述型 JSDoc。"
+      },
+      {
+        id: "LOW-002",
+        severity: "low",
+        category: "可读性",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "725-729",
+        title: "buildDecorationItemsIncludingAddData 无意义包装",
+        description: "仅调用 computeDecorationItems，增加 indirection 无附加逻辑。",
+        recommendation: "内联调用 computeDecorationItems，删除包装方法。"
+      },
+      {
+        id: "LOW-003",
+        severity: "low",
+        category: "可读性",
+        file: "src/services/AuthService.ts",
+        line: "89, 94",
+        title: "冗余 Promise.resolve/reject 包装",
+        description: "async 函数内 return Promise.resolve(true) 与 return Promise.reject(e) 多余。",
+        recommendation: "直接 return true 或 throw e。"
+      },
+      {
+        id: "LOW-004",
+        severity: "low",
+        category: "冗余",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "1194-1205",
+        title: "文件路径匹配逻辑过于宽松",
+        description: "filterRelatedDecorationItems 使用 includes/endsWith 双向匹配，可能误匹配相似路径片段。",
+        recommendation: "优先 normalize 后相等或 endsWith('/'+relativePath)；结合 workspaceRoot 解析。"
+      },
+      {
+        id: "LOW-005",
+        severity: "low",
+        category: "规范",
+        file: "webview/common/hooks/useAuthState.ts",
+        line: "16",
+        title: "AuthStatePayload 类型不完整",
+        description: "本地类型仅 { loggedIn? }，与 shared AuthStatePayload（含 serverUrl 等）不一致，丢失类型安全。",
+        recommendation: "复用 shared/types AuthStatePayload。"
+      },
+      {
+        id: "LOW-006",
+        severity: "low",
+        category: "可读性",
+        file: "src/providers/ReviewViewProvider.ts",
+        line: "50-52",
+        title: "重复/孤立注释块",
+        description: "「装饰状态枚举」注释下无对应 enum，紧接着 type DecorationItem。",
+        recommendation: "删除过时注释或补全 enum。"
+      },
+      {
+        id: "LOW-007",
+        severity: "low",
+        category: "过度设计",
+        file: "shared/utils.ts",
+        line: "54-74",
+        title: "createUniqueId 19 位算法对扩展场景过重",
+        description: "Webview 回调 ID 使用复杂位运算+序列号，crypto.randomUUID 或递增计数即可。",
+        recommendation: "简化为 crypto.randomUUID()（Webview）或 nanoid；保留测试 resetIdGenerator 若需要。"
+      }
+    ];
+
+    const STORAGE_KEY = "coreview-review-decisions-v1";
+    const CATEGORIES = [...new Set(ISSUES.map(i => i.category))];
+
+    const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    ISSUES.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+    let activeSeverity = "all";
+    let activeCategory = "all";
+    let decisions = loadDecisions();
+
+    function loadDecisions() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      } catch {
+        return {};
+      }
+    }
+
+    function saveDecisions() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(decisions));
+    }
+
+    function renderStats() {
+      const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+      ISSUES.forEach(i => counts[i.severity]++);
+      const el = document.getElementById("stats");
+      el.innerHTML = `
+        <span class="stat stat-all ${activeSeverity === "all" ? "active" : ""}" data-sev="all">全部 ${ISSUES.length}</span>
+        <span class="stat stat-critical ${activeSeverity === "critical" ? "active" : ""}" data-sev="critical">Critical ${counts.critical}</span>
+        <span class="stat stat-high ${activeSeverity === "high" ? "active" : ""}" data-sev="high">High ${counts.high}</span>
+        <span class="stat stat-medium ${activeSeverity === "medium" ? "active" : ""}" data-sev="medium">Medium ${counts.medium}</span>
+        <span class="stat stat-low ${activeSeverity === "low" ? "active" : ""}" data-sev="low">Low ${counts.low}</span>
+      `;
+      el.querySelectorAll(".stat").forEach(s => {
+        s.addEventListener("click", () => {
+          activeSeverity = s.dataset.sev;
+          renderStats();
+          renderIssues();
+        });
+      });
+    }
+
+    function renderCategoryFilters() {
+      const el = document.getElementById("category-filters");
+      let html = `<button class="filter-btn ${activeCategory === "all" ? "active" : ""}" data-cat="all">全部分类</button>`;
+      CATEGORIES.forEach(c => {
+        html += `<button class="filter-btn ${activeCategory === c ? "active" : ""}" data-cat="${c}">${c}</button>`;
+      });
+      el.innerHTML = html;
+      el.querySelectorAll(".filter-btn").forEach(b => {
+        b.addEventListener("click", () => {
+          activeCategory = b.dataset.cat;
+          renderCategoryFilters();
+          renderIssues();
+        });
+      });
+    }
+
+    function renderIssues() {
+      const container = document.getElementById("issues");
+      const filtered = ISSUES.filter(i => {
+        if (activeSeverity !== "all" && i.severity !== activeSeverity) return false;
+        if (activeCategory !== "all" && i.category !== activeCategory) return false;
+        return true;
+      });
+
+      container.innerHTML = filtered.map(issue => {
+        const d = decisions[issue.id] || { fix: null, note: "" };
+        const fixClass = d.fix === "yes" ? "selected-yes" : d.fix === "no" ? "selected-no" : d.fix === "defer" ? "selected-defer" : "";
+        return `
+          <article class="issue" data-severity="${issue.severity}" data-id="${issue.id}">
+            <div class="issue-header">
+              <span class="badge badge-${issue.severity}">${issue.severity}</span>
+              <span class="cat">${issue.category} · ${issue.id}</span>
+              <h3>${issue.title}</h3>
+            </div>
+            <div class="loc">${issue.file}:${issue.line}</div>
+            <p class="desc">${issue.description}</p>
+            <div class="rec"><strong>推荐方案：</strong>${issue.recommendation}</div>
+            <div class="actions">
+              <label>是否修复？</label>
+              <div class="fix-btns" data-id="${issue.id}">
+                <button type="button" data-fix="yes" class="${d.fix === "yes" ? "selected-yes" : ""}">✓ 修复</button>
+                <button type="button" data-fix="no" class="${d.fix === "no" ? "selected-no" : ""}">✗ 不修复</button>
+                <button type="button" data-fix="defer" class="${d.fix === "defer" ? "selected-defer" : ""}">⏸ 暂缓</button>
+              </div>
+              <label>备注说明</label>
+              <textarea class="note" data-id="${issue.id}" placeholder="填写自定义修复方案或原因…（留空则复制时使用推荐方案）">${d.note || ""}</textarea>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      container.querySelectorAll(".fix-btns button").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.closest(".fix-btns").dataset.id;
+          const fix = btn.dataset.fix;
+          if (!decisions[id]) decisions[id] = { fix: null, note: "" };
+          decisions[id].fix = fix;
+          saveDecisions();
+          renderIssues();
+        });
+      });
+
+      container.querySelectorAll("textarea.note").forEach(ta => {
+        ta.addEventListener("input", () => {
+          const id = ta.dataset.id;
+          if (!decisions[id]) decisions[id] = { fix: null, note: "" };
+          decisions[id].note = ta.value;
+          saveDecisions();
+        });
+      });
+    }
+
+    function fixLabel(fix) {
+      if (fix === "yes") return "修复";
+      if (fix === "no") return "不修复";
+      if (fix === "defer") return "暂缓";
+      return "未决定";
+    }
+
+    function buildCopyText() {
+      const lines = [];
+      lines.push("# CoReview 代码审查 — 修复决策清单");
+      lines.push(`生成时间: 2025-06-05`);
+      lines.push(`迭代: v0.0.4 → v0.0.11`);
+      lines.push("");
+      lines.push("## 本迭代 API 接口");
+      lines.push("- GET  {serverUrl}/client/system/checkConnection");
+      lines.push("- POST /client/system/checkAuth");
+      lines.push("- GET  /client/system/pullColumnDefines");
+      lines.push("- GET  /client/project/getMyProjects");
+      lines.push("- POST /client/comment/queryList");
+      lines.push("- POST /client/comment/commitComments");
+      lines.push("");
+
+      const grouped = { critical: [], high: [], medium: [], low: [] };
+      ISSUES.forEach(i => grouped[i.severity].push(i));
+
+      ["critical", "high", "medium", "low"].forEach(sev => {
+        const items = grouped[sev];
+        if (!items.length) return;
+        lines.push(`## ${sev.toUpperCase()} (${items.length})`);
+        lines.push("");
+        items.forEach(issue => {
+          const d = decisions[issue.id] || { fix: null, note: "" };
+          const plan = (d.note && d.note.trim()) ? d.note.trim() : issue.recommendation;
+          lines.push(`### [${issue.id}] ${issue.title}`);
+          lines.push(`- 严重性: ${issue.severity}`);
+          lines.push(`- 分类: ${issue.category}`);
+          lines.push(`- 位置: ${issue.file}:${issue.line}`);
+          lines.push(`- 问题: ${issue.description}`);
+          lines.push(`- 是否修复: ${fixLabel(d.fix)}`);
+          lines.push(`- 修复方案: ${plan}`);
+          lines.push("");
+        });
+      });
+
+      return lines.join("\n");
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", async () => {
+      const text = buildCopyText();
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      const toast = document.getElementById("toast");
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2000);
+    });
+
+    document.getElementById("btn-reset").addEventListener("click", () => {
+      if (confirm("确定重置所有「是否修复」和备注填写？")) {
+        decisions = {};
+        saveDecisions();
+        renderIssues();
+      }
+    });
+
+    renderStats();
+    renderCategoryFilters();
+    renderIssues();
+  </script>
+</body>
+</html>

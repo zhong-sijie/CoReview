@@ -1,19 +1,12 @@
 import { useEffect, useState } from 'react';
 import { EnumMessageType } from '@shared/enums';
 import type { ExtensionMessage } from '@shared/types';
+import type { AuthStatePayload } from '@shared/types';
 import {
   onMessage,
   postMessage,
   removeMessageHandler,
 } from '../services/vscodeService';
-
-/**
- * 鉴权状态负载类型
- *
- * 定义从扩展端接收的鉴权状态消息的数据结构。
- * 包含登录状态信息，用于判断用户是否已通过身份验证。
- */
-type AuthStatePayload = { loggedIn?: boolean };
 
 /**
  * 鉴权状态管理 hook

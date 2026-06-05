@@ -145,19 +145,19 @@
     "keybindings": [
       {
         "command": "coreview.addReviewComment",
-        "key": "alt+a",
+        "key": "shift+a",
         "when": "editorTextFocus"
       }
     ]
-  },
-  "scripts": {
-    "dev": "pnpm run watch",
-    "build": "pnpm run webview:build && pnpm run compile",
-    "compile": "node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
-    "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "webview:dev": "pnpm -C webview dev",
+    },
+    "scripts": {
+      "dev": "pnpm run watch",
+      "build": "pnpm run webview:build && pnpm run compile",
+      "compile": "node esbuild.js",
+      "watch": "npm-run-all -p watch:*",
+      "watch:esbuild": "node esbuild.js --watch",
+      "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+      "webview:dev": "pnpm -C webview dev",
     "webview:dev:sidebar": "pnpm -C webview dev:sidebar",
     "webview:dev:editorial": "pnpm -C webview dev:editorial",
     "webview:build": "pnpm -C webview build",
@@ -183,6 +183,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.99.0",
+    "@types/winston": "^2.4.4",
     "@typescript-eslint/eslint-plugin": "^8.39.0",
     "@typescript-eslint/parser": "^8.39.0",
     "@vscode/test-cli": "^0.0.11",
@@ -202,7 +203,6 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "@types/winston": "^2.4.4",
     "axios": "^1.11.0",
     "dayjs": "^1.11.18",
     "winston": "^3.17.0"

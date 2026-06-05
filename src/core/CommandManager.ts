@@ -1,14 +1,19 @@
 import * as childProcess from 'child_process';
 import * as path from 'path';
+import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { EnumCommands } from '../../shared/enums';
+import { mergeSelectedSegments } from '../../shared/selectionText';
 import { normalizeFilePath } from '../../shared/utils';
 import { EditorialViewProvider } from '../providers/EditorialViewProvider';
 import { ReviewViewProvider } from '../providers/ReviewViewProvider';
 import { AuthService } from '../services/AuthService';
 import { LogService } from '../services/LogService';
+import { ProjectListService } from '../services/ProjectListService';
 import { StateService } from '../services/StateService';
 import { showError, showInfo, showWarning } from '../utils';
+
+const execFileAsync = promisify(childProcess.execFile);
 
 /**
  * 命令管理器类
@@ -160,6 +165,7 @@ export class CommandManager {
     try {
       this.log.info('触发登出操作', 'CommandManager');
       await AuthService.getInstance().loadLogout();
+      this.viewProvider?.clearInitialCache();
       if (this.viewProvider) {
         this.viewProvider.broadcastAuthState();
       }
@@ -229,11 +235,16 @@ export class CommandManager {
   private async handleRefreshWebview(): Promise<void> {
     if (this.viewProvider) {
       this.log.info('触发刷新 Webview 操作', 'CommandManager');
+
+      const { projects } =
+        await ProjectListService.getInstance().ensureProjectsFresh('manual');
+      this.viewProvider.patchCachedProjects(projects);
+
       this.viewProvider.reloadWebview();
 
       // 同时刷新编辑面板数据，确保使用最新的列配置
       if (this.editorialProvider) {
-        console.log('触发刷新编辑面板数据', 'CommandManager');
+        this.log.debug('触发刷新编辑面板数据', 'CommandManager');
         this.editorialProvider.refreshEditorialData();
       }
     } else {
@@ -245,7 +256,7 @@ export class CommandManager {
   /**
    * 处理添加评审意见命令
    *
-   * 当用户触发 Alt+A 快捷键时执行此方法。
+   * 当用户触发 Shift+A 快捷键时执行此方法。
    * 获取选中文本信息，然后委托给编辑面板处理。
    *
    * 执行流程：
@@ -307,16 +318,8 @@ export class CommandManager {
     }
 
     // 按起始行号排序，保持代码块的原始位置顺序
-    selectedSegments.sort((a, b) => a.startLine - b.startLine);
-
-    // 合并所有选中的文本（按行号顺序）
-    const selectedText = selectedSegments
-      .map(segment => segment.text)
-      .join('\n');
-
-    // 生成行号显示字符串（按行号顺序）
-    const lineRanges = selectedSegments.map(segment => segment.lineRange);
-    const lineNumber = lineRanges.join('; ');
+    const { selectedText, lineNumber } =
+      mergeSelectedSegments(selectedSegments);
 
     // 获取当前文件的绝对路径
     const absolutePath = editor.document.fileName;
@@ -375,46 +378,31 @@ export class CommandManager {
     branchName: string | null;
   }> {
     try {
-      // 标准化文件路径，统一使用正斜杠格式
       const normalizedFilePath = normalizeFilePath(filePath);
-      this.log.debug('开始解析 Git 信息', 'CommandManager', {
-        originalPath: filePath,
-        normalizedPath: normalizedFilePath,
-      });
-      // 获取文件所在目录
       const fileDir = path.dirname(normalizedFilePath);
 
-      // 获取 git 仓库根目录
-      const gitRoot = childProcess
-        .execSync('git rev-parse --show-toplevel', {
-          cwd: fileDir,
-          encoding: 'utf8',
-        })
-        .trim();
+      const { stdout: gitRoot } = await execFileAsync(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        { cwd: fileDir, encoding: 'utf8' },
+      );
+      const root = gitRoot.trim();
 
-      // 获取远程仓库 URL
-      const repositoryUrl = childProcess
-        .execSync('git config --get remote.origin.url', {
-          cwd: gitRoot,
-          encoding: 'utf8',
-        })
-        .trim();
+      const { stdout: repositoryUrl } = await execFileAsync(
+        'git',
+        ['config', '--get', 'remote.origin.url'],
+        { cwd: root, encoding: 'utf8' },
+      );
 
-      // 获取当前分支名
-      const branchName = childProcess
-        .execSync('git branch --show-current', {
-          cwd: gitRoot,
-          encoding: 'utf8',
-        })
-        .trim();
+      const { stdout: branchName } = await execFileAsync(
+        'git',
+        ['branch', '--show-current'],
+        { cwd: root, encoding: 'utf8' },
+      );
 
-      this.log.debug('解析 Git 信息完成', 'CommandManager', {
-        repositoryUrl,
-        branchName,
-      });
       return {
-        repositoryUrl: repositoryUrl || null,
-        branchName: branchName || null,
+        repositoryUrl: repositoryUrl.trim() || null,
+        branchName: branchName.trim() || null,
       };
     } catch {
       this.log.warn('解析 Git 信息失败，将使用空信息', 'CommandManager', {
@@ -440,31 +428,12 @@ export class CommandManager {
       // 更新布局状态
       this.stateService.setLayout(newLayout);
 
-      // 更新命令的标题和图标
       await vscode.commands.executeCommand(
         'setContext',
         'coreview.currentLayout',
         newLayout,
       );
 
-      // 更新命令的标题
-      const newTitle =
-        newLayout === 'table' ? '切换到卡片视图' : '切换到表格视图';
-      const newIcon = newLayout === 'table' ? '$(card)' : '$(table)';
-
-      // 这里无法直接更新命令的标题，但可以通过 context 来控制显示
-      await vscode.commands.executeCommand(
-        'setContext',
-        'coreview.layoutTitle',
-        newTitle,
-      );
-      await vscode.commands.executeCommand(
-        'setContext',
-        'coreview.layoutIcon',
-        newIcon,
-      );
-
-      // 通知 webview 更新布局
       if (this.viewProvider) {
         this.viewProvider.updateLayout(newLayout);
       }

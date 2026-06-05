@@ -11,6 +11,7 @@ import {
 import { getArrayLength, getObjectKeyCount } from '../../shared/utils';
 import { requestApi } from '../utils/request';
 import { LogService } from './LogService';
+import { ProjectListService } from './ProjectListService';
 import { StateService } from './StateService';
 
 /**
@@ -40,6 +41,9 @@ export interface CommentQueryParams {
 export class TableService {
   /** 单例实例，确保全局只有一个表格服务 */
   private static instance: TableService;
+
+  /** 进行中的初始表格请求，用于去重 */
+  private initialTableInflight: Promise<InitialTableData> | null = null;
 
   /** 日志服务实例 */
   private log: LogService = LogService.getInstance();
@@ -80,10 +84,12 @@ export class TableService {
    * @returns 列配置数组，失败时返回空数组
    */
   public async loadGetColumnConfig(): Promise<ColumnConfig[]> {
-    // 优先从缓存获取
     const stateService = StateService.getInstance();
+    const cached = stateService.getColumnConfig();
+    if (cached && cached.length > 0) {
+      return cached;
+    }
 
-    // 缓存不存在，从后端获取
     try {
       this.log.debug('拉取列配置', 'TableService');
       const response = await requestApi<ColumnConfigResponse>({
@@ -109,39 +115,6 @@ export class TableService {
   }
 
   /**
-   * 获取用户可访问的项目列表
-   *
-   * 获取当前用户有权限访问的所有项目，用于Header区域展示。
-   * 项目列表用于用户选择要查询的项目范围。
-   *
-   * 执行流程：
-   * 1. 调用 /client/project/getMyProjects 接口
-   * 2. 返回项目列表，失败时返回空数组
-   *
-   * @returns 项目列表数组，失败时返回空数组
-   */
-  public async loadGetMyProjects(): Promise<ProjectOptionResponse[]> {
-    try {
-      this.log.debug('拉取项目列表', 'TableService');
-      const data = await requestApi<ProjectOptionResponse[]>({
-        url: '/client/project/getMyProjects',
-        method: EnumHttpMethod.Get,
-      });
-      const projects = data.map((p: ProjectOptionResponse) => ({
-        projectId: p.projectId,
-        projectName: p.projectName,
-      }));
-      this.log.debug('拉取项目列表完成', 'TableService', {
-        projectsCount: getArrayLength(projects),
-      });
-      return projects;
-    } catch {
-      this.log.warn('拉取项目列表失败', 'TableService');
-      return [];
-    }
-  }
-
-  /**
    * 并行获取：列配置 + 项目列表
    *
    * 同时获取表格初始化所需的所有数据，包括列配置、项目列表和评论数据。
@@ -157,7 +130,17 @@ export class TableService {
    * @returns 包含列配置、项目列表、评论数据和查询上下文的完整数据
    */
   public async loadGetInitialTable(): Promise<InitialTableData> {
-    // 获取持久化的查询上下文状态
+    if (this.initialTableInflight) {
+      return this.initialTableInflight;
+    }
+
+    this.initialTableInflight = this.fetchInitialTable().finally(() => {
+      this.initialTableInflight = null;
+    });
+    return this.initialTableInflight;
+  }
+
+  private async fetchInitialTable(): Promise<InitialTableData> {
     const stateService = StateService.getInstance();
     const appState = stateService.getState();
     const queryContext = stateService.getQueryContext();
@@ -180,9 +163,9 @@ export class TableService {
     }
 
     // 先获取列配置和项目列表（列配置会自动缓存至 StateService）
-    const [columns, projects] = await Promise.all([
+    const [columns, { projects }] = await Promise.all([
       this.loadGetColumnConfig(),
-      this.loadGetMyProjects(),
+      ProjectListService.getInstance().ensureProjectsFresh('initial'),
     ]);
 
     // 检查持久化的项目ID是否还存在

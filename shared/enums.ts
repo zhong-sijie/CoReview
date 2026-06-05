@@ -51,6 +51,8 @@ export enum EnumMessageType {
   NewReviewCommentAdded = 'new-review-comment-added',
   /** 布局模式发生变化，通知 webview 更新布局 */
   LayoutChanged = 'layout-changed',
+  /** 项目列表已更新（Sidebar 与 Editorial 同步） */
+  ProjectsUpdated = 'projects-updated',
 }
 
 /**

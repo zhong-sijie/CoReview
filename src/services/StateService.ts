@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { EnumReviewListFilter } from '../../shared/enums';
 import {
   ColumnConfig,
+  ProjectOptionResponse,
   QueryContext,
   ReviewCommentItem,
   UserDetail,
@@ -58,6 +59,15 @@ export class StateService {
   /** VS Code 全局状态存储对象，用于持久化数据 */
   private memento: vscode.Memento | null = null;
 
+  /** 凭据安全存储 */
+  private secrets: vscode.SecretStorage | null = null;
+
+  /** 凭据内存缓存，供 request 拦截器同步读取 */
+  private credentialCache: { account?: string; password?: string } = {};
+
+  /** 凭据加载完成 Promise */
+  private credentialsReady: Promise<void> = Promise.resolve();
+
   /** 日志服务实例 */
   private log: LogService = LogService.getInstance();
 
@@ -87,6 +97,10 @@ export class StateService {
     LAST_DAILY_REMINDER_DATE: 'coreview.lastDailyReminderDate',
     /** 当前布局模式 */
     LAYOUT: 'coreview.layout',
+    /** 项目列表缓存 */
+    PROJECTS: 'coreview.projects',
+    /** addReview 自动刷新项目列表的最后日期（YYYY-MM-DD，本地时区） */
+    LAST_AUTO_PROJECTS_REFRESH_DATE: 'coreview.lastAutoProjectsRefreshDate',
   } as const;
 
   /** 当前应用状态，包含所有运行时状态信息 */
@@ -145,7 +159,9 @@ export class StateService {
    */
   public initialize(context: vscode.ExtensionContext): void {
     this.memento = context.globalState;
+    this.secrets = context.secrets;
     this.loadStateFromStorage();
+    this.credentialsReady = this.loadCredentialsIntoCache();
     // 确保请求客户端的 baseURL 与已恢复的 serverUrl 保持一致
     setRequestBaseUrl(this.state.serverUrl);
     this.log.info('状态服务初始化完成', 'StateService', {
@@ -184,20 +200,6 @@ export class StateService {
 
     if (savedServerUrl && typeof savedServerUrl === 'string') {
       this.state.serverUrl = savedServerUrl;
-    }
-
-    // 加载账号、密码与用户信息
-    const savedAccount = this.memento.get<string>(
-      StateService.STORAGE_KEYS.ACCOUNT,
-    );
-
-    const savedPassword = this.memento.get<string>(
-      StateService.STORAGE_KEYS.PASSWORD,
-    );
-
-    // 如果服务器地址、账号、密码同时存在，则认为用户还处于登录状态
-    if (this.state.serverUrl && savedAccount && savedPassword) {
-      this.state.loggedIn = true;
     }
 
     const savedUser = this.memento.get<any>(
@@ -356,25 +358,73 @@ export class StateService {
    *
    * @returns 登录账号，未保存时返回 undefined
    */
-  public getAccount(): string | undefined {
-    if (!this.memento) {
-      return undefined;
-    }
-    return this.memento.get<string>(StateService.STORAGE_KEYS.ACCOUNT);
+  /** 等待凭据从 SecretStorage 加载完成 */
+  public async whenCredentialsReady(): Promise<void> {
+    await this.credentialsReady;
   }
 
-  /**
-   * 获取登录密码（MD5加密后的）
-   *
-   * 从持久化存储中获取保存的加密密码。
-   *
-   * @returns 加密后的密码，未保存时返回 undefined
-   */
+  public getAccount(): string | undefined {
+    return this.credentialCache.account;
+  }
+
   public getPassword(): string | undefined {
-    if (!this.memento) {
-      return undefined;
+    return this.credentialCache.password;
+  }
+
+  private async loadCredentialsIntoCache(): Promise<void> {
+    if (!this.secrets) {
+      return;
     }
-    return this.memento.get<string>(StateService.STORAGE_KEYS.PASSWORD);
+
+    let account = await this.secrets.get(StateService.STORAGE_KEYS.ACCOUNT);
+    let password = await this.secrets.get(StateService.STORAGE_KEYS.PASSWORD);
+
+    // 从 globalState 迁移旧凭据
+    if ((!account || !password) && this.memento) {
+      const legacyAccount = this.memento.get<string>(
+        StateService.STORAGE_KEYS.ACCOUNT,
+      );
+      const legacyPassword = this.memento.get<string>(
+        StateService.STORAGE_KEYS.PASSWORD,
+      );
+      if (legacyAccount && legacyPassword) {
+        await this.secrets.store(
+          StateService.STORAGE_KEYS.ACCOUNT,
+          legacyAccount,
+        );
+        await this.secrets.store(
+          StateService.STORAGE_KEYS.PASSWORD,
+          legacyPassword,
+        );
+        await this.memento.update(StateService.STORAGE_KEYS.ACCOUNT, undefined);
+        await this.memento.update(
+          StateService.STORAGE_KEYS.PASSWORD,
+          undefined,
+        );
+        account = legacyAccount;
+        password = legacyPassword;
+        this.log.info(
+          '凭据已从 globalState 迁移至 SecretStorage',
+          'StateService',
+        );
+      }
+    }
+
+    this.credentialCache = { account, password };
+    this.syncLoggedInFromCredentials();
+  }
+
+  private syncLoggedInFromCredentials(): void {
+    const hasCredentials = Boolean(
+      this.credentialCache.account && this.credentialCache.password,
+    );
+    if (this.state.serverUrl && hasCredentials) {
+      this.state.loggedIn = true;
+      this.state.connectionOk = true;
+    } else if (!hasCredentials) {
+      this.state.loggedIn = false;
+    }
+    this.notifyStateChange();
   }
 
   /**
@@ -390,10 +440,11 @@ export class StateService {
     account: string,
     password: string,
   ): Promise<void> {
-    if (this.memento) {
-      await this.memento.update(StateService.STORAGE_KEYS.ACCOUNT, account);
-      await this.memento.update(StateService.STORAGE_KEYS.PASSWORD, password);
+    if (this.secrets) {
+      await this.secrets.store(StateService.STORAGE_KEYS.ACCOUNT, account);
+      await this.secrets.store(StateService.STORAGE_KEYS.PASSWORD, password);
     }
+    this.credentialCache = { account, password };
   }
 
   /**
@@ -403,6 +454,11 @@ export class StateService {
    * 包括账号、密码和用户详情。
    */
   public async clearCredentials(): Promise<void> {
+    if (this.secrets) {
+      await this.secrets.delete(StateService.STORAGE_KEYS.ACCOUNT);
+      await this.secrets.delete(StateService.STORAGE_KEYS.PASSWORD);
+    }
+    this.credentialCache = {};
     if (this.memento) {
       await this.memento.update(StateService.STORAGE_KEYS.ACCOUNT, undefined);
       await this.memento.update(StateService.STORAGE_KEYS.PASSWORD, undefined);
@@ -448,6 +504,7 @@ export class StateService {
       addData: null,
       layout: 'card',
     };
+    this.credentialCache = {};
     // 清除请求客户端的 baseURL
     setRequestBaseUrl(null);
     this.notifyStateChange();
@@ -478,6 +535,52 @@ export class StateService {
     if (this.memento) {
       await this.memento.update(
         StateService.STORAGE_KEYS.LAST_DAILY_REMINDER_DATE,
+        undefined,
+      );
+    }
+  }
+
+  public getProjects(): ProjectOptionResponse[] {
+    if (!this.memento) {
+      return [];
+    }
+    return (
+      this.memento.get<ProjectOptionResponse[]>(
+        StateService.STORAGE_KEYS.PROJECTS,
+      ) ?? []
+    );
+  }
+
+  public async setProjects(projects: ProjectOptionResponse[]): Promise<void> {
+    if (this.memento) {
+      await this.memento.update(StateService.STORAGE_KEYS.PROJECTS, projects);
+    }
+  }
+
+  public getLastAutoProjectsRefreshDate(): string | undefined {
+    if (!this.memento) {
+      return undefined;
+    }
+    return this.memento.get<string>(
+      StateService.STORAGE_KEYS.LAST_AUTO_PROJECTS_REFRESH_DATE,
+    );
+  }
+
+  public async setLastAutoProjectsRefreshDate(dateStr: string): Promise<void> {
+    if (this.memento) {
+      await this.memento.update(
+        StateService.STORAGE_KEYS.LAST_AUTO_PROJECTS_REFRESH_DATE,
+        dateStr,
+      );
+    }
+  }
+
+  /** 登出时清除项目列表缓存与自动刷新日期 */
+  public async clearProjectsCache(): Promise<void> {
+    if (this.memento) {
+      await this.memento.update(StateService.STORAGE_KEYS.PROJECTS, undefined);
+      await this.memento.update(
+        StateService.STORAGE_KEYS.LAST_AUTO_PROJECTS_REFRESH_DATE,
         undefined,
       );
     }

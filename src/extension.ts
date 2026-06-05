@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { CommandManager } from './core/CommandManager';
 import { EditorialViewProvider } from './providers/EditorialViewProvider';
 import { ReviewViewProvider } from './providers/ReviewViewProvider';
+import { DecorationService } from './services/DecorationService';
 import { LogService } from './services/LogService';
 import { ReminderService } from './services/ReminderService';
 import { StateService } from './services/StateService';
@@ -57,9 +58,15 @@ export function activate(context: vscode.ExtensionContext) {
   // 初始化状态管理服务
   stateService.initialize(context);
 
+  const decorationService = new DecorationService();
+  decorationService.register(context);
+
   // 注册主视图提供者
   /** 主视图提供者实例，负责创建和管理WebView界面 */
-  const viewProvider = new ReviewViewProvider(context.extensionUri);
+  const viewProvider = new ReviewViewProvider(
+    context.extensionUri,
+    decorationService,
+  );
   log.info('注册主视图提供者', 'extension', {
     viewType: ReviewViewProvider.viewType,
   });
@@ -81,6 +88,7 @@ export function activate(context: vscode.ExtensionContext) {
         viewProvider.broadcastNewReviewComment();
       }
     },
+    projects => viewProvider.broadcastProjectsUpdated(projects),
   );
   log.info('注册编辑视图提供者', 'extension', {
     viewType: EditorialViewProvider.viewType,

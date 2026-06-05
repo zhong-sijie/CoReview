@@ -1,15 +1,17 @@
 import * as vscode from 'vscode';
 import { EnumMessageType, EnumViews } from '../../shared/enums';
+import { injectProjectEnumValues } from '../../shared/projectList';
 import {
+  ProjectOptionResponse,
   SaveReviewCommentPayload,
   UserDetail,
   WebViewMessage,
 } from '../../shared/types';
 import { normalizeFilePath, toWorkspaceRelativePath } from '../../shared/utils';
 import { LogService } from '../services/LogService';
+import { ProjectListService } from '../services/ProjectListService';
 import { StateService } from '../services/StateService';
 import { WebViewService } from '../services/WebViewService';
-import { WebViewServiceFactory } from '../services/WebViewServiceFactory';
 import { showError, showInfo } from '../utils';
 
 /**
@@ -38,6 +40,9 @@ export class EditorialViewProvider {
 
   /** 用于通知其他视图的回调函数，当有新评审意见时调用 */
   private onNewCommentAdded?: () => void;
+
+  /** 项目列表更新时通知 Sidebar 同步 */
+  private onProjectsUpdated?: (projects: ProjectOptionResponse[]) => void;
 
   /** 日志服务实例 */
   private log: LogService;
@@ -68,78 +73,20 @@ export class EditorialViewProvider {
    *
    * @param _extensionUri 扩展的根目录 URI
    * @param onNewCommentAdded 新增评审意见时的回调函数
+   * @param onProjectsUpdated 项目列表从网络刷新后的回调函数
    */
   constructor(
     private readonly _extensionUri: vscode.Uri,
     onNewCommentAdded?: () => void,
+    onProjectsUpdated?: (projects: ProjectOptionResponse[]) => void,
   ) {
-    this.webViewService = WebViewServiceFactory.createService('editorial');
+    this.webViewService = new WebViewService('editorial');
     this.stateService = StateService.getInstance();
     this.onNewCommentAdded = onNewCommentAdded;
+    this.onProjectsUpdated = onProjectsUpdated;
     this.log = LogService.getInstance();
     this.setupMessageHandlers();
     this.log.info('初始化编辑视图提供者', 'EditorialViewProvider');
-  }
-
-  /**
-   * 基于 VS Code 多选信息处理选中文本
-   *
-   * 处理多段文本选择的情况，确保文本按行号顺序排列并以空行分隔。
-   * 如果只有单段选择，则保持原样。
-   *
-   * 执行流程：
-   * 1. 检查是否有活动的文本编辑器
-   * 2. 获取所有选择区域
-   * 3. 如果选择区域少于等于1个，返回原始文本
-   * 4. 提取每段文本内容并记录起始行号
-   * 5. 按起始行号排序
-   * 6. 以空行分隔拼接所有文本段
-   *
-   * @param originalSelectedText 原始选中的文本
-   * @returns 处理后的文本内容
-   */
-  private computeProcessedText(originalSelectedText: string): string {
-    this.log.debug('开始处理多段选中文本', 'EditorialViewProvider');
-    const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-      this.log.warn(
-        '处理多段文本被忽略：无活动编辑器',
-        'EditorialViewProvider',
-      );
-      return originalSelectedText;
-    }
-
-    const selections = activeEditor.selections;
-    if (!selections || selections.length <= 1) {
-      return originalSelectedText;
-    }
-
-    const textSegments: Array<{ text: string; startLine: number }> = [];
-    for (const selection of selections) {
-      const startLine = selection.start.line;
-      const endLine = selection.end.line;
-      const range = new vscode.Range(startLine, 0, endLine + 1, 0);
-      const segmentText = activeEditor.document.getText(range).trim();
-      if (segmentText) {
-        textSegments.push({ text: segmentText, startLine });
-      }
-    }
-
-    if (textSegments.length === 0) {
-      this.log.warn(
-        '处理多段文本结果为空，将返回原始文本',
-        'EditorialViewProvider',
-      );
-      return originalSelectedText;
-    }
-
-    textSegments.sort((a, b) => a.startLine - b.startLine);
-    const result = textSegments.map(s => s.text).join('\n\n');
-    this.log.debug('处理多段选中文本完成', 'EditorialViewProvider', {
-      length: result.length,
-      segments: textSegments.length,
-    });
-    return result;
   }
 
   /**
@@ -244,8 +191,8 @@ export class EditorialViewProvider {
       return;
     }
 
-    // 处理多段文本
-    const processedText = this.computeProcessedText(selectedText);
+    // 处理多段文本（CommandManager 已合并，此处直接使用）
+    const processedText = selectedText;
 
     // 计算展示用相对路径 & 获取文件内容快照
     const filePath = this.toWorkspaceRelativePath(absolutePath);
@@ -266,10 +213,13 @@ export class EditorialViewProvider {
       text: processedText,
     });
 
+    await this.refreshProjectsForAddReview();
+
     // 如果面板已存在，显示并更新内容
     if (this._panel) {
       this.log.info('复用已存在的编辑面板', 'EditorialViewProvider');
       this._panel.reveal();
+      void this.sendEditorialInitData();
       return;
     }
 
@@ -434,6 +384,17 @@ export class EditorialViewProvider {
   }
 
   /**
+   * addReview 路径刷新项目列表（受每日一次限制）
+   */
+  private async refreshProjectsForAddReview(): Promise<void> {
+    const { projects, fetchedFromNetwork } =
+      await ProjectListService.getInstance().ensureProjectsFresh('addReview');
+    if (fetchedFromNetwork) {
+      this.onProjectsUpdated?.(projects);
+    }
+  }
+
+  /**
    * 发送 Editorial 页面初始化数据
    *
    * 向编辑面板发送初始化所需的所有数据，包括认证状态、选中文本信息、Git 信息等。
@@ -453,8 +414,10 @@ export class EditorialViewProvider {
     // 获取认证状态
     const authState = this.stateService.getState();
 
-    // 从缓存获取列配置
-    const columns = this.stateService.getColumnConfig() || [];
+    const projects = this.stateService.getProjects();
+    const baseColumns = this.stateService.getColumnConfig() || [];
+    const columns = injectProjectEnumValues(baseColumns, projects);
+    const defaultProjectId = this.stateService.getCurrentProjectId();
 
     // 发送统一的初始化数据
     this._panel.webview.postMessage({
@@ -468,12 +431,14 @@ export class EditorialViewProvider {
         },
         userDetail: this.selectedTextInfo.userDetail,
         columns,
+        defaultProjectId,
       },
     });
     this.log.debug('下发 Editorial 初始化数据', 'EditorialViewProvider', {
       authState,
       selectedTextInfo: this.selectedTextInfo,
       columns,
+      defaultProjectId,
     });
   }
 }

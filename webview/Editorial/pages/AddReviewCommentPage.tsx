@@ -103,6 +103,7 @@ type EditorialInitPayload = {
   gitInfo: GitInfoPayload;
   userDetail: UserDetail | null;
   columns: ColumnConfig[];
+  defaultProjectId?: number;
 };
 
 /**
@@ -622,6 +623,7 @@ const AddReviewCommentPage = () => {
         gitInfo,
         userDetail,
         columns = [],
+        defaultProjectId,
       } = message.payload || {};
 
       reportLog(EnumLogLevel.INFO, 'EditorialInit received', {
@@ -648,6 +650,22 @@ const AddReviewCommentPage = () => {
           });
           initialData[item.columnCode] = defaultValue;
         });
+
+        if (defaultProjectId !== undefined) {
+          const projectCol = visibleColumns.find(
+            col => col.columnCode === 'projectId',
+          );
+          const matched = projectCol?.enumValues?.find(
+            opt => opt.value === String(defaultProjectId),
+          );
+          if (matched) {
+            initialData.projectId = {
+              value: matched.value,
+              showName: matched.showName,
+            };
+          }
+        }
+
         reset(initialData);
 
         reportLog(EnumLogLevel.INFO, 'Editorial form initialized', {

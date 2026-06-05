@@ -86,12 +86,12 @@ export class AuthService {
       this.log.info('连接测试成功', 'AuthService', {
         serverUrl: normalizedServerUrl,
       });
-      return Promise.resolve(true);
+      return true;
     } catch (e) {
       this.log.error('连接测试失败', 'AuthService', {
         error: e instanceof Error ? e.message : String(e),
       });
-      return Promise.reject(e);
+      throw e;
     }
   }
 
@@ -164,6 +164,7 @@ export class AuthService {
     this.log.debug('开始登出', 'AuthService');
     // 通过 StateService 清除登录凭据
     await this.stateService.clearCredentials();
+    await this.stateService.clearProjectsCache();
 
     // 通过 StateService 重置登录状态
     this.stateService.setLoggedIn(false);

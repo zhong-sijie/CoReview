@@ -458,6 +458,8 @@ export interface TableDataLoadedPayload extends InitialTableData {
   editData?: Record<string, ReviewCommentItem> | null;
   /** 新增的评审意见 */
   addData?: Record<string, ReviewCommentItem>;
+  /** 当前布局模式 */
+  layout?: 'table' | 'card';
 }
 
 /**
@@ -491,6 +493,39 @@ export interface NewReviewCommentAddedPayload {
 }
 
 /**
+ * 项目列表更新事件负载接口
+ */
+export interface ProjectsUpdatedPayload {
+  projects: ProjectOptionResponse[];
+}
+
+/**
+ * Editorial 页面初始化数据负载接口
+ */
+export interface EditorialInitPayload {
+  authState: AuthStatePayload;
+  selectedTextInfo: {
+    text: string;
+    lineNumber: string;
+    filePath: string;
+    fileSnapshot: string;
+    gitInfo?: {
+      repositoryUrl: string | null;
+      branchName: string | null;
+    };
+    userDetail?: unknown | null;
+  };
+  gitInfo: {
+    repositoryUrl: string | null;
+    branchName: string | null;
+  };
+  userDetail: UserDetail | null;
+  columns: ColumnConfig[];
+  /** Sidebar 当前选中的项目 ID，供表单预选 */
+  defaultProjectId?: number;
+}
+
+/**
  * 打开文件消息负载接口
  *
  * 定义打开文件时发送的消息负载。
@@ -519,4 +554,6 @@ export type AllMessagePayloads =
   | AuthStatePayload
   | TableDataLoadedPayload
   | CommentsLoadedPayload
+  | ProjectsUpdatedPayload
+  | EditorialInitPayload
   | WebviewLogPayload;

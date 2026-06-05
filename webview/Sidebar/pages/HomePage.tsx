@@ -24,6 +24,7 @@ import type {
   ExtensionMessage,
   ProjectOptionResponse,
   ProjectSelectOption,
+  ProjectsUpdatedPayload,
   ReviewCommentItem,
   ReviewCommentValues,
   ReviewFieldValue,
@@ -227,6 +228,7 @@ const HomePage = () => {
         editData: persistedEditData,
         queryContext,
         addData: initialAddData = {},
+        layout,
       } = message.payload || {};
 
       reportLog(EnumLogLevel.INFO, '解析后的数据', {
@@ -245,6 +247,10 @@ const HomePage = () => {
 
       // 更新项目列表
       setProjects(projects);
+
+      if (layout === 'table' || layout === 'card') {
+        setCurrentLayout(layout);
+      }
 
       // 更新原始评审数据
       setOriginalReviews(comments);
@@ -296,28 +302,53 @@ const HomePage = () => {
    * 挂载后延迟 100ms 主动发送 GetInitialData，避免 Webview 刚重载时监听尚未生效导致的数据丢失。
    */
   useEffect(() => {
-    // 注册消息处理器，监听表格数据加载完成事件
     onMessage<TableDataLoadedPayload>(
       EnumMessageType.TableDataLoaded,
       handleTableDataLoaded,
     );
 
-    // 在消息监听器注册完成后，主动请求初始数据
-    // 添加延迟，避免在 WebView 重新加载时重复发送请求或监听未就绪
-    const timeoutId = setTimeout(() => {
-      reportLog(EnumLogLevel.INFO, '发送 GetInitialData 请求', {});
-      postMessage(EnumMessageType.GetInitialData, {});
-    }, 100);
+    postMessage(EnumMessageType.GetInitialData, {});
 
-    // 清理函数：组件卸载时移除消息处理器和定时器
     return () => {
-      clearTimeout(timeoutId);
       removeMessageHandler<TableDataLoadedPayload>(
         EnumMessageType.TableDataLoaded,
         handleTableDataLoaded,
       );
     };
   }, [handleTableDataLoaded]);
+
+  /** 监听项目列表更新（addReview 或手动刷新后同步 Sidebar） */
+  useEffect(() => {
+    const handler = (message: ExtensionMessage<ProjectsUpdatedPayload>) => {
+      const { projects = [] } = message.payload || {};
+      setProjects(projects);
+      setProjectsLoading(false);
+      setQueryContext(prev => {
+        if (!prev.project) {
+          return prev;
+        }
+        const matched = projects.find(p => p.projectId === prev.project?.value);
+        if (matched) {
+          if (matched.projectName === prev.project?.label) {
+            return prev;
+          }
+          return {
+            ...prev,
+            project: { value: matched.projectId, label: matched.projectName },
+          };
+        }
+        postMessage(EnumMessageType.UpdateQueryContext, {
+          projectId: undefined,
+          type: prev.statusValue?.value,
+        });
+        return { ...prev, project: undefined };
+      });
+    };
+    onMessage(EnumMessageType.ProjectsUpdated, handler);
+    return () => {
+      removeMessageHandler(EnumMessageType.ProjectsUpdated, handler);
+    };
+  }, []);
 
   /**
    * 更新表格数据
@@ -573,12 +604,17 @@ const HomePage = () => {
     // 2) 合并编辑数据和新增数据后一起提交
     const allSubmitData = [...editDataArray, ...addDataArray];
     if (allSubmitData.length > 0) {
-      await runSubmit(EnumMessageType.SubmitData, {
+      const result = await runSubmit(EnumMessageType.SubmitData, {
         submitData: allSubmitData,
       });
+      if (!result.success) {
+        reportLog(EnumLogLevel.WARN, '提交失败，保留本地编辑数据', {
+          error: result.error,
+        });
+        return;
+      }
     }
 
-    // 3) 提交成功后，清空本地与持久化的数据
     setEditData(new Map());
     setAddData(new Map());
     postMessage(EnumMessageType.UpdateEditData, { editData: [], addData: [] });

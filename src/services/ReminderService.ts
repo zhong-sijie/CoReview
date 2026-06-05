@@ -114,60 +114,39 @@ export class ReminderService {
     return dayjs(d).format('YYYY-MM-DD');
   }
 
-  /**
-   * 若满足条件且今日尚未提醒，则计算数量并提醒一次
-   *
-   * 条件：
-   * - 已登录：由 `StateService` 的应用状态决定
-   * - 连接就绪：确保可访问接口
-   * - 已配置 serverUrl：确保请求基础地址有效
-   * - 未在当日提醒过：通过 `LAST_REMINDER_DATE` 去重
-   *
-   * 逻辑：
-   * 1) 校验条件，任一不满足则直接返回。
-   * 2) 统计“待我确认”的数量（`TableService.loadPendingCount()`）。
-   * 3) 通过 VS Code 信息提示展示数量。
-   * 4) 写入当日为已提醒，防止重复触发。
-   */
-  /**
-   * 每日提醒（初始化/11点）：当天最多一次。
-   * 若当天登录提醒已触发，则不再重复。
-   */
+  private canNotify(): boolean {
+    const app = this.stateService.getState();
+    return (
+      app.loggedIn &&
+      app.connectionOk &&
+      Boolean(this.stateService.getServerUrl())
+    );
+  }
+
+  private async showPendingNotification(): Promise<void> {
+    const count = await this.tableService.loadPendingCount();
+    if (count > 0) {
+      vscode.window.showInformationMessage(`你有 ${count} 条评审待处理`);
+    } else {
+      vscode.window.showInformationMessage(
+        '待处理清零，太棒啦🎉 继续保持优秀！💪',
+      );
+    }
+  }
+
   private async maybeNotifyDaily(): Promise<void> {
     try {
-      const app = this.stateService.getState();
-      this.log.info('开始触发每日提醒', 'ReminderService', {
-        loggedIn: app.loggedIn,
-        connectionOk: app.connectionOk,
-        serverUrl: this.stateService.getServerUrl(),
-      });
-      if (!app.loggedIn) {
-        this.log.info('跳过每日提醒：未满足前置条件', 'ReminderService', {
-          loggedIn: app.loggedIn,
-          connectionOk: app.connectionOk,
-          hasServerUrl: Boolean(this.stateService.getServerUrl()),
-        });
+      if (!this.canNotify()) {
         return;
       }
 
       const today = this.getLocalDateStr();
       const lastDaily = this.stateService.getLastDailyReminderDate();
       if (lastDaily === today) {
-        this.log.info('跳过每日提醒：今日已提醒过', 'ReminderService', {
-          lastDaily,
-          today,
-        });
-        return; // 今日已提醒
+        return;
       }
 
-      const count = await this.tableService.loadPendingCount();
-      if (count > 0) {
-        vscode.window.showInformationMessage(`你有 ${count} 条评审待处理`);
-      } else {
-        vscode.window.showInformationMessage(
-          '待处理清零，太棒啦🎉 继续保持优秀！💪',
-        );
-      }
+      await this.showPendingNotification();
       await this.stateService.setLastDailyReminderDate(today);
     } catch (e) {
       this.log.warn('每日提醒执行失败', 'ReminderService', {
@@ -176,37 +155,16 @@ export class ReminderService {
     }
   }
 
-  /**
-   * 登录成功时触发的提醒：允许当日多次触发（根据你的第2条，允许多次），
-   * 但会重置“每日提醒”的日期，使当日 11 点/初始化的每日提醒不再出现。
-   */
   public async notifyOnLogin(): Promise<void> {
     try {
-      this.log.info('开始触发提醒', 'ReminderService');
-      const app = this.stateService.getState();
-      if (
-        !app.loggedIn ||
-        !app.connectionOk ||
-        !this.stateService.getServerUrl()
-      ) {
+      if (!this.canNotify()) {
         return;
       }
 
-      const count = await this.tableService.loadPendingCount();
-      if (count > 0) {
-        vscode.window.showInformationMessage(`你有 ${count} 条评审待处理`);
-      } else {
-        vscode.window.showInformationMessage(
-          '待处理清零，太棒啦🎉 继续保持优秀！💪',
-        );
-      }
+      await this.showPendingNotification();
 
-      // 登录提醒也更新“每日提醒日期”，避免当日每日提醒重复
       const today = this.getLocalDateStr();
       await this.stateService.setLastDailyReminderDate(today);
-      this.log.info('登录提醒完成并记录当日(合并状态)', 'ReminderService', {
-        today,
-      });
     } catch (e) {
       this.log.warn('登录提醒执行失败', 'ReminderService', {
         error: e instanceof Error ? e.message : String(e),
