@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import { EnumReviewListFilter } from '../../shared/enums';
+import { isLastAddFormPrefsExpired } from '../../shared/lastAddFormPrefs';
 import {
   ColumnConfig,
+  LastAddFormPrefsFields,
+  LastAddFormPrefsState,
   ProjectOptionResponse,
   QueryContext,
   ReviewCommentItem,
@@ -101,6 +104,8 @@ export class StateService {
     PROJECTS: 'coreview.projects',
     /** addReview 自动刷新项目列表的最后日期（YYYY-MM-DD，本地时区） */
     LAST_AUTO_PROJECTS_REFRESH_DATE: 'coreview.lastAutoProjectsRefreshDate',
+    /** 添加评审意见表单偏好（含 savedAt，3 天 TTL） */
+    LAST_ADD_FORM_PREFS: 'coreview.lastAddFormPrefs',
   } as const;
 
   /** 当前应用状态，包含所有运行时状态信息 */
@@ -731,6 +736,74 @@ export class StateService {
     }
 
     return this.state.columnConfig;
+  }
+
+  /**
+   * 保存添加表单偏好（写入时刷新 savedAt）
+   */
+  public setLastAddFormPrefs(fields: LastAddFormPrefsFields): void {
+    if (!fields || !Object.keys(fields).length) {
+      return;
+    }
+
+    const state: LastAddFormPrefsState = {
+      savedAt: Date.now(),
+      fields,
+    };
+
+    if (this.memento) {
+      void this.memento.update(
+        StateService.STORAGE_KEYS.LAST_ADD_FORM_PREFS,
+        state,
+      );
+    }
+
+    this.log.info('更新添加表单偏好缓存', 'StateService', {
+      fieldCount: Object.keys(fields).length,
+      savedAt: state.savedAt,
+    });
+  }
+
+  /**
+   * 读取添加表单偏好；超过 3 天则清理并返回 null
+   */
+  public getLastAddFormPrefs(): LastAddFormPrefsFields | null {
+    if (!this.memento) {
+      return null;
+    }
+
+    const stored = this.memento.get<LastAddFormPrefsState>(
+      StateService.STORAGE_KEYS.LAST_ADD_FORM_PREFS,
+    );
+
+    if (!stored || typeof stored !== 'object' || !stored.fields) {
+      return null;
+    }
+
+    if (
+      typeof stored.savedAt !== 'number' ||
+      isLastAddFormPrefsExpired(stored.savedAt)
+    ) {
+      this.clearLastAddFormPrefs();
+      return null;
+    }
+
+    if (!Object.keys(stored.fields).length) {
+      return null;
+    }
+
+    return stored.fields;
+  }
+
+  /** 清除添加表单偏好缓存 */
+  public clearLastAddFormPrefs(): void {
+    if (this.memento) {
+      void this.memento.update(
+        StateService.STORAGE_KEYS.LAST_ADD_FORM_PREFS,
+        undefined,
+      );
+    }
+    this.log.info('清理添加表单偏好缓存', 'StateService');
   }
 
   /**

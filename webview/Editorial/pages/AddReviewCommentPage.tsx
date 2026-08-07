@@ -21,10 +21,15 @@ import type {
   ColumnConfig,
   EnumOption,
   ExtensionMessage,
+  LastAddFormPrefsFields,
   ReviewCommentItem,
   UserDetail,
 } from '@shared/types';
 import { createUniqueId } from '@shared/utils';
+import {
+  applyLastAddFormPrefs,
+  extractLastAddFormPrefs,
+} from '../utils/lastAddFormPrefs';
 
 // ==================== 样式常量 ====================
 
@@ -103,7 +108,7 @@ type EditorialInitPayload = {
   gitInfo: GitInfoPayload;
   userDetail: UserDetail | null;
   columns: ColumnConfig[];
-  defaultProjectId?: number;
+  lastAddFormPrefs?: LastAddFormPrefsFields | null;
 };
 
 /**
@@ -623,7 +628,7 @@ const AddReviewCommentPage = () => {
         gitInfo,
         userDetail,
         columns = [],
-        defaultProjectId,
+        lastAddFormPrefs,
       } = message.payload || {};
 
       reportLog(EnumLogLevel.INFO, 'EditorialInit received', {
@@ -631,6 +636,7 @@ const AddReviewCommentPage = () => {
         hasSelectedText: Boolean(selectedTextInfo),
         hasGitInfo: Boolean(gitInfo),
         hasUserDetail: Boolean(userDetail),
+        hasLastAddFormPrefs: Boolean(lastAddFormPrefs),
       });
 
       // 保存选中的文本信息（包含fileSnapshot）
@@ -651,25 +657,19 @@ const AddReviewCommentPage = () => {
           initialData[item.columnCode] = defaultValue;
         });
 
-        if (defaultProjectId !== undefined) {
-          const projectCol = visibleColumns.find(
-            col => col.columnCode === 'projectId',
-          );
-          const matched = projectCol?.enumValues?.find(
-            opt => opt.value === String(defaultProjectId),
-          );
-          if (matched) {
-            initialData.projectId = {
-              value: matched.value,
-              showName: matched.showName,
-            };
-          }
-        }
-
-        reset(initialData);
+        // projectId：仅从缓存恢复；无缓存保持为空，不与侧边栏联动
+        const mergedData = applyLastAddFormPrefs(
+          initialData,
+          visibleColumns,
+          lastAddFormPrefs,
+        );
+        reset(mergedData);
 
         reportLog(EnumLogLevel.INFO, 'Editorial form initialized', {
           visibleColumns: visibleColumns.length,
+          restoredPrefs: Boolean(
+            lastAddFormPrefs && Object.keys(lastAddFormPrefs).length,
+          ),
         });
       }
     },
@@ -681,6 +681,14 @@ const AddReviewCommentPage = () => {
    */
   const onSubmit = async (data: FormData) => {
     const uniqueId = createUniqueId();
+
+    const forceDisabledCodes = fieldConfigs
+      .filter(config => config.forceDisabled)
+      .map(config => config.columnCode);
+
+    const formPrefs = extractLastAddFormPrefs(data, columns, {
+      forceDisabledCodes,
+    });
 
     const payload: Record<string, ReviewCommentItem> = {
       [uniqueId]: {
@@ -707,8 +715,10 @@ const AddReviewCommentPage = () => {
       },
     };
 
+    // formPrefs 随保存请求上报；扩展端在 setAddData 成功后写入 globalState
     await submitReviewComment(EnumMessageType.SaveReviewComment, {
       comment: payload,
+      formPrefs,
     });
   };
 

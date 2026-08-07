@@ -43,6 +43,21 @@ export interface EnumOption {
   showName: string;
 }
 
+/** 添加表单偏好单个字段值 */
+export type FormFieldPrefValue = {
+  value: string;
+  showName: string;
+};
+
+/** 添加表单偏好字段集合（columnCode -> 值） */
+export type LastAddFormPrefsFields = Record<string, FormFieldPrefValue>;
+
+/** 扩展端 globalState 中的添加表单偏好持久化结构 */
+export type LastAddFormPrefsState = {
+  savedAt: number;
+  fields: LastAddFormPrefsFields;
+};
+
 /**
  * 列配置接口
  *
@@ -480,6 +495,11 @@ export interface CommentsLoadedPayload {
 export interface SaveReviewCommentPayload extends BaseMessagePayload {
   /** 评审意见数据，使用 Record<string, ReviewCommentItem> 格式与编辑数据保持一致 */
   comment: Record<string, ReviewCommentItem>;
+  /**
+   * 可复用的添加表单偏好字段（由 webview 按列配置过滤后上报）。
+   * 扩展端在保存成功后写入 globalState，供下次 EditorialInit 恢复。
+   */
+  formPrefs?: LastAddFormPrefsFields;
 }
 
 /**
@@ -523,6 +543,8 @@ export interface EditorialInitPayload {
   columns: ColumnConfig[];
   /** Sidebar 当前选中的项目 ID，供表单预选 */
   defaultProjectId?: number;
+  /** 上次保存的添加表单偏好（已过期则为 null/省略） */
+  lastAddFormPrefs?: LastAddFormPrefsFields | null;
 }
 
 /**

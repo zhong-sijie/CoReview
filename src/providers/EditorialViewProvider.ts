@@ -318,12 +318,17 @@ export class EditorialViewProvider {
       async (message: WebViewMessage<SaveReviewCommentPayload>) => {
         try {
           this.log.info('收到保存评审意见请求', 'EditorialViewProvider');
-          const { comment, callbackId } = message.payload ?? {};
+          const { comment, callbackId, formPrefs } = message.payload ?? {};
 
           // 1. 在调用处处理顺序：新建在前，已有在后
           const existing = this.stateService.getAddData();
           const merged = { ...(comment || {}), ...(existing || {}) };
           this.stateService.setAddData(merged);
+
+          // 1.5 持久化添加表单偏好（扩展端 globalState，不依赖 webview dispose 时序）
+          if (formPrefs && Object.keys(formPrefs).length > 0) {
+            this.stateService.setLastAddFormPrefs(formPrefs);
+          }
 
           // 2. 发送保存结果
           if (this._panel) {
@@ -418,6 +423,7 @@ export class EditorialViewProvider {
     const baseColumns = this.stateService.getColumnConfig() || [];
     const columns = injectProjectEnumValues(baseColumns, projects);
     const defaultProjectId = this.stateService.getCurrentProjectId();
+    const lastAddFormPrefs = this.stateService.getLastAddFormPrefs();
 
     // 发送统一的初始化数据
     this._panel.webview.postMessage({
@@ -432,6 +438,7 @@ export class EditorialViewProvider {
         userDetail: this.selectedTextInfo.userDetail,
         columns,
         defaultProjectId,
+        lastAddFormPrefs,
       },
     });
     this.log.debug('下发 Editorial 初始化数据', 'EditorialViewProvider', {
@@ -439,6 +446,9 @@ export class EditorialViewProvider {
       selectedTextInfo: this.selectedTextInfo,
       columns,
       defaultProjectId,
+      lastAddFormPrefsFieldCount: lastAddFormPrefs
+        ? Object.keys(lastAddFormPrefs).length
+        : 0,
     });
   }
 }
